@@ -1,6 +1,45 @@
-[package]
-name = "hytale-manager"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
 
-[dependencies]
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/sani/hytale-manager"
+
+[workspace.dependencies]
+hy-cli = { path = "crates/hy-cli" }
+hy-java = { path = "crates/hy-java" }
+
+anstream = "0.6"
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+etcetera = "0.10"
+flate2 = "1"
+fs4 = "0.13"
+futures-util = "0.3"
+indicatif = "0.17"
+owo-colors = { version = "4", features = ["supports-colors"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+  "json",
+  "charset",
+  "http2",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[profile.release]
+lto = "thin"
+strip = true

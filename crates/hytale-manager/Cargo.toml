@@ -1,0 +1,27 @@
+[package]
+name = "hytale-manager"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Manage Hytale server installations, backups, and processes"
+
+[[bin]]
+name = "hy"
+path = "src/main.rs"
+
+[dependencies]
+hy-cli = { workspace = true }
+hy-java = { workspace = true }
+
+anstream = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+indicatif = { workspace = true }
+owo-colors = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

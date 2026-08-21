@@ -309,35 +309,39 @@ frequency = 30
 
 ## Implementation phases
 
-**Phase 0 — workspace scaffold.** Root `Cargo.toml`, 8 crate skeletons, `hy-cli` command
-tree, `printer`/`logging`, settings layering, exit-code plumbing. Deliverable: `hy --help`
-renders the full command tree.
+**✅ Phase 0 — workspace scaffold.** Root `Cargo.toml` (`members = ["crates/*"]`),
+`hy-cli` command tree, `printer`/`logging`/`progress`, exit-code plumbing.
 
-**Phase 1 — `hy-java`.** Adoptium client, managed store with atomic+locked installs, system
-discovery, the two-stage resolution, newest-LTS selection, `.java-version` read/write,
-auto-provisioning. Deliverable: `hy java install 25`, `hy java list`, `hy java find`,
-`hy java pin`, and `-p` on a stub command. Fully testable with no Hytale server present.
+> Deviation: three crates exist (`hytale-manager`, `hy-cli`, `hy-java`) rather than eight
+> skeletons. Empty placeholder crates are clutter; the remaining five arrive with the phases
+> that fill them. `config.rs` in the binary is a deliberate stand-in for `hy-instance`,
+> reading only `[java] version`, and is superseded in phase 2.
 
-**Phase 2 — `hy-instance`.** Layout discovery/validation/creation, `hytale.toml` parsing,
+**✅ Phase 1 — `hy-java`.** Adoptium client, managed store with atomic+locked
+installs, system discovery, the two-stage resolution, newest-LTS selection,
+`.java-version` read/write, auto-provisioning. `hy java install|list|find|pin|uninstall|dir`
+and `-p`/`--java`. 23 tests, clippy clean.
+
+**⬜ Phase 2 — `hy-instance`.** Layout discovery/validation/creation, `hytale.toml` parsing,
 version stamp, `jvm.options` round-trip. Deliverable: `hy init`, `hy status` on an
 existing hand-made install.
 
-**Phase 3 — `hy-run`.** The core. Spawn the JVM with resolved Java + jvm.options + AOT cache
+**⬜ Phase 3 — `hy-run`.** The core. Spawn the JVM with resolved Java + jvm.options + AOT cache
 from the correct cwd; the exit-8 loop; selective staging application; the stdin console
 channel; graceful shutdown on SIGINT/SIGTERM (and Windows Ctrl-C); log tee to `logs/`.
 Deliverable: `hy run` fully replaces `start.sh`. **Build the console channel first** —
 phases 4 and 5 depend on it.
 
-**Phase 4 — `hy-dist` + acquisition.** maven-metadata version listing, the `--bootstrap`
+**⬜ Phase 4 — `hy-dist` + acquisition.** maven-metadata version listing, the `--bootstrap`
 flow driven over phase 3's console channel, device-code surfacing with a countdown,
 payload extraction, `+x` on `start.sh`, auth-file migration into `Server/`. Deliverable:
 `hy install`, `hy auth login`, `hy update *`.
 
-**Phase 5 — `hy-backup`.** Cold snapshot of `universe/` + config JSONs + `mods/` into a
+**⬜ Phase 5 — `hy-backup`.** Cold snapshot of `universe/` + config JSONs + `mods/` into a
 timestamped archive, with stop-then-restart-if-running. Restore with a pre-restore safety
 snapshot. `list`, `prune --keep N`. Deliverable: `hy backup *`.
 
-**Phase 6 — polish.** `hy self update`, shell completions from `hy-cli`, README, systemd
+**⬜ Phase 6 — polish.** `hy self update`, shell completions from `hy-cli`, README, systemd
 unit generation if wanted.
 
 ---
@@ -374,6 +378,11 @@ Requires a real server payload:
 
 ## Open questions / deferred
 
+- **`flock` is unreliable on some filesystems.** The store lock is the primary guard against
+  concurrent installs, but WSL2's `/mnt/*` Windows mounts are v9fs and NFS behaves similarly,
+  where advisory locking may be a no-op. `download.rs` therefore also tolerates losing a
+  rename race, and the checksum is the final backstop. Worth a warning if `HY_HOME` is
+  detected on such a filesystem.
 - **Full `--help` flag list uncaptured.** The manual truncates `java -jar HytaleServer.jar
   --help` at `--backup-frequency`. Capture the real list during phase 4 and reconcile.
 - **Multi-instance registry** deferred. cwd/`--dir` addressing only; a global named registry

@@ -16,12 +16,7 @@ pub struct InstallKey {
 }
 
 impl InstallKey {
-    pub fn new(
-        distribution: JavaDistribution,
-        version: JavaVersion,
-        os: Os,
-        arch: Arch,
-    ) -> Self {
+    pub fn new(distribution: JavaDistribution, version: JavaVersion, os: Os, arch: Arch) -> Self {
         Self {
             distribution,
             version,

@@ -6,6 +6,7 @@ use anyhow::{Context as _, Result, bail};
 use hy_cli::{
     JavaFindArgs, JavaInstallArgs, JavaListArgs, JavaPinArgs, JavaSelector, JavaUninstallArgs,
 };
+use hy_instance::Instance;
 use hy_java::{
     InstallKey, JavaSource, RequestOrigin, ResolvedJava, Resolver, Store, VersionRequest,
     discovery, pin, requested,
@@ -13,7 +14,6 @@ use hy_java::{
 use owo_colors::OwoColorize;
 
 use crate::commands::Context;
-use crate::config;
 use crate::printer::bytes;
 use crate::progress::BarReporter;
 
@@ -69,7 +69,11 @@ pub async fn install(args: JavaInstallArgs, ctx: &Context) -> Result<()> {
         install.java_home().display()
     ));
 
-    maybe_write_pin(ctx, request.distribution.unwrap_or_default(), &asset.version)?;
+    maybe_write_pin(
+        ctx,
+        request.distribution.unwrap_or_default(),
+        &asset.version,
+    )?;
     Ok(())
 }
 
@@ -163,7 +167,10 @@ pub async fn pin(args: JavaPinArgs, ctx: &Context) -> Result<()> {
 
     // A pin that contradicts the instance's requirement is refused here rather than at the
     // next run, so the error arrives while the operator is still thinking about it.
-    if let Some((requirement, file)) = config::java_requirement(&ctx.dir)? {
+    if let Some((raw, file)) = ctx.instance.as_ref().and_then(Instance::java_requirement) {
+        let requirement = raw
+            .parse::<VersionRequest>()
+            .with_context(|| format!("invalid `[java] version` in {}: `{raw}`", file.display()))?;
         let pinned: VersionRequest = value.parse()?;
         if !hy_java::pin_satisfies(&pinned, &requirement) {
             bail!(
@@ -173,12 +180,10 @@ pub async fn pin(args: JavaPinArgs, ctx: &Context) -> Result<()> {
         }
     }
 
-    pin::write(&ctx.dir, &value)?;
-    ctx.printer.event(format!(
-        "Pinned {} to {}",
-        ctx.dir.display(),
-        value.bold()
-    ));
+    let dir = ctx.pin_dir();
+    pin::write(dir, &value)?;
+    ctx.printer
+        .event(format!("Pinned {} to {}", dir.display(), value.bold()));
     Ok(())
 }
 
@@ -207,7 +212,7 @@ pub fn dir(ctx: &Context) -> Result<()> {
 }
 
 /// Stage A of the resolution: decide which version is wanted.
-fn stage_a(
+pub(crate) fn stage_a(
     selector: Option<&JavaSelector>,
     ctx: &Context,
 ) -> Result<(VersionRequest, RequestOrigin)> {
@@ -215,12 +220,22 @@ fn stage_a(
         Some(raw) if !looks_like_path(raw) => Some(raw.parse::<VersionRequest>()?),
         _ => None,
     };
-    let config = config::java_requirement(&ctx.dir)?;
-    Ok(requested(cli, config, &ctx.dir)?)
+
+    let config = match ctx.instance.as_ref().and_then(Instance::java_requirement) {
+        Some((raw, path)) => {
+            let request = raw.parse::<VersionRequest>().with_context(|| {
+                format!("invalid `[java] version` in {}: `{raw}`", path.display())
+            })?;
+            Some((request, path))
+        }
+        None => None,
+    };
+
+    Ok(requested(cli, config, ctx.pin_dir())?)
 }
 
 /// A selector is a path if it names one, rather than a version.
-fn looks_like_path(raw: &str) -> bool {
+pub(crate) fn looks_like_path(raw: &str) -> bool {
     raw.contains(std::path::MAIN_SEPARATOR)
         || raw.contains('/')
         || raw.starts_with('~')
@@ -283,15 +298,41 @@ fn maybe_write_pin(
     distribution: hy_java::JavaDistribution,
     version: &hy_java::JavaVersion,
 ) -> Result<()> {
-    // Only pin inside something that is actually a server instance; `hy java install` run
-    // from an arbitrary directory should not litter it with a `.java-version`.
-    if !ctx.dir.join(config::CONFIG_FILE).is_file() {
+    maybe_pin(ctx, &pin::value(distribution, version))
+}
+
+/// Record what an instance ended up using, so later runs are reproducible.
+///
+/// Only inside an instance: `hy java install` from an arbitrary directory should not
+/// litter it with a `.java-version`.
+pub(crate) fn maybe_pin(ctx: &Context, value: &str) -> Result<()> {
+    if ctx.instance.is_none() {
         return Ok(());
     }
-    let value = pin::value(distribution, version);
-    if pin::write_if_absent(&ctx.dir, &value)? {
+    if pin::write_if_absent(ctx.pin_dir(), value)? {
         ctx.printer
             .detail(format!("pinned {} to {value}", pin::PIN_FILE));
     }
     Ok(())
+}
+
+/// Resolve a JVM for a command that is about to use one, honouring an explicit path.
+pub(crate) async fn resolve_for(selector: &JavaSelector, ctx: &Context) -> Result<ResolvedJava> {
+    if let Some(raw) = selector.java.as_deref()
+        && looks_like_path(raw)
+    {
+        return probe_path(raw);
+    }
+
+    let (request, origin) = stage_a(Some(selector), ctx)?;
+    let resolver = Resolver::new(Store::from_env()?)?;
+    let reporter = BarReporter::new(ctx.progress);
+    let resolved = resolver
+        .resolve(&request, ctx.options, &reporter)
+        .await
+        .with_context(|| format!("could not satisfy Java requirement `{request}`"))?;
+
+    report(ctx, &request, &origin, &resolved);
+    maybe_pin(ctx, &hy_java::pin_for(&resolved))?;
+    Ok(resolved)
 }

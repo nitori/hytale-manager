@@ -35,7 +35,7 @@ pub mod version;
 pub use adoptium::{AdoptiumClient, AvailableReleases, ReleaseAsset};
 pub use discovery::SystemJava;
 pub use distribution::JavaDistribution;
-pub use download::{NoProgress, ProgressReporter};
+pub use download::{Checksum, NoProgress, ProgressReporter};
 pub use error::{Error, Result};
 pub use key::InstallKey;
 pub use platform::{Arch, Os};

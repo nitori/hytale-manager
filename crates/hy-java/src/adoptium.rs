@@ -48,9 +48,7 @@ pub struct ReleaseAsset {
 
 impl AdoptiumClient {
     pub fn new() -> Result<Self> {
-        let http = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .build()?;
+        let http = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
         Ok(Self { http })
     }
 

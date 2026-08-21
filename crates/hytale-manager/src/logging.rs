@@ -17,8 +17,7 @@ pub fn init(verbose: u8, quiet: bool) {
         }
     };
 
-    let filter = EnvFilter::try_from_env("HY_LOG")
-        .unwrap_or_else(|_| EnvFilter::new(default));
+    let filter = EnvFilter::try_from_env("HY_LOG").unwrap_or_else(|_| EnvFilter::new(default));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)

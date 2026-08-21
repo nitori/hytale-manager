@@ -1,7 +1,7 @@
 //! The two-stage Java resolution.
 //!
 //! **Stage A — which version is wanted.** First match wins:
-//!   1. `-p` / `--java` on the command line
+//!   1. `-j` / `--java` on the command line
 //!   2. `.java-version` in the instance directory
 //!   3. the `[java] version` requirement in `hytale.toml`
 //!   4. the built-in default, `>=25`
@@ -406,9 +406,10 @@ impl Resolver {
     /// Which feature release to fetch. This is where the LTS preference lives.
     fn feature_version(&self, request: &VersionRequest, available: &AvailableReleases) -> u32 {
         match &request.spec {
-            VersionSpec::Prefix(components) => {
-                components.first().copied().unwrap_or(available.most_recent_lts)
-            }
+            VersionSpec::Prefix(components) => components
+                .first()
+                .copied()
+                .unwrap_or(available.most_recent_lts),
             VersionSpec::AtLeast(components) => {
                 let floor = components.first().copied().unwrap_or(0);
                 // Newest LTS at or above the floor; only fall back to a non-LTS release if
@@ -455,10 +456,7 @@ fn pick_system(spec: &VersionSpec, mut candidates: Vec<SystemJava>) -> Option<Sy
 
 /// The portable pin string for a resolved JVM, for writing to `.java-version`.
 pub fn pin_for(resolved: &ResolvedJava) -> String {
-    pin::value(
-        resolved.distribution.unwrap_or_default(),
-        &resolved.version,
-    )
+    pin::value(resolved.distribution.unwrap_or_default(), &resolved.version)
 }
 
 #[cfg(test)]

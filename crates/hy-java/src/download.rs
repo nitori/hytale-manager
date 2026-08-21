@@ -11,6 +11,36 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{Error, Result};
 
+/// What a download is checked against.
+#[derive(Debug, Clone)]
+pub enum Checksum {
+    Sha256(String),
+    /// The Hytale maven repository publishes only `.sha1`. Weak against forgery, but the
+    /// transport is HTTPS — this is here to catch truncation and bad resumes.
+    Sha1(String),
+}
+
+impl Checksum {
+    pub fn expected(&self) -> &str {
+        match self {
+            Self::Sha256(hex) | Self::Sha1(hex) => hex,
+        }
+    }
+
+    async fn digest(&self, path: &Path) -> Result<String> {
+        match self {
+            Self::Sha256(_) => digest_file::<Sha256>(path).await,
+            Self::Sha1(_) => digest_file::<sha1::Sha1>(path).await,
+        }
+    }
+
+    /// `None` when the file matches; the actual digest when it does not.
+    async fn mismatch(&self, path: &Path) -> Result<Option<String>> {
+        let actual = self.digest(path).await?;
+        Ok((!actual.eq_ignore_ascii_case(self.expected())).then_some(actual))
+    }
+}
+
 /// Progress sink, so this crate does not depend on a particular terminal UI.
 pub trait ProgressReporter: Send + Sync {
     fn start(&self, name: &str, total: u64);
@@ -28,7 +58,10 @@ impl ProgressReporter for NoProgress {
 }
 
 /// Download `url` into `dest_dir`, resuming a partial transfer if one is present, and
-/// verify the result against `expected_sha256`.
+/// verify the result.
+///
+/// `expected_size` is optional because maven does not publish one; it is used only to
+/// discard an oversized `.part` and as a progress fallback.
 ///
 /// Returns the path to the verified file. If a verified copy is already present it is
 /// reused without touching the network.
@@ -36,8 +69,8 @@ pub async fn download_verified(
     http: &reqwest::Client,
     url: &str,
     name: &str,
-    expected_sha256: &str,
-    expected_size: u64,
+    checksum: &Checksum,
+    expected_size: Option<u64>,
     dest_dir: &Path,
     progress: &dyn ProgressReporter,
 ) -> Result<PathBuf> {
@@ -47,8 +80,7 @@ pub async fn download_verified(
 
     // Reuse a previously verified download.
     if final_path.is_file() {
-        let actual = sha256_file(&final_path).await?;
-        if actual.eq_ignore_ascii_case(expected_sha256) {
+        if checksum.mismatch(&final_path).await?.is_none() {
             tracing::debug!("reusing cached download at {}", final_path.display());
             return Ok(final_path);
         }
@@ -57,7 +89,7 @@ pub async fn download_verified(
     }
 
     let mut have = match tokio::fs::metadata(&part_path).await {
-        Ok(meta) if meta.len() < expected_size => meta.len(),
+        Ok(meta) if expected_size.is_none_or(|size| meta.len() < size) => meta.len(),
         // A `.part` at or beyond the expected size is junk; start clean.
         Ok(_) => {
             tokio::fs::remove_file(&part_path).await?;
@@ -71,7 +103,20 @@ pub async fn download_verified(
         tracing::debug!("resuming {name} at {have} bytes");
         request = request.header(reqwest::header::RANGE, format!("bytes={have}-"));
     }
-    let response = request.send().await?.error_for_status()?;
+    let response = request.send().await?;
+
+    // Without a known size a stale `.part` can exceed the file; the server then rejects the
+    // range instead of serving it, so start over rather than failing the install.
+    let response = if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE
+        && have > 0
+    {
+        tracing::debug!("stale partial download for {name}; restarting");
+        let _ = tokio::fs::remove_file(&part_path).await;
+        have = 0;
+        http.get(url).send().await?.error_for_status()?
+    } else {
+        response.error_for_status()?
+    };
 
     // A server that ignores the range header replies 200 with the whole body; in that case
     // discard what we had rather than concatenating garbage.
@@ -83,7 +128,7 @@ pub async fn download_verified(
 
     let total = response
         .content_length()
-        .map_or(expected_size, |len| len + have);
+        .map_or(expected_size.unwrap_or(0), |len| len + have);
     progress.start(name, total);
     progress.advance(have);
 
@@ -108,13 +153,12 @@ pub async fn download_verified(
     drop(file);
     progress.finish();
 
-    let actual = sha256_file(&part_path).await?;
-    if !actual.eq_ignore_ascii_case(expected_sha256) {
+    if let Some(actual) = checksum.mismatch(&part_path).await? {
         // Remove the bad file so a retry does not resume from it.
         let _ = tokio::fs::remove_file(&part_path).await;
         return Err(Error::ChecksumMismatch {
             name: name.to_string(),
-            expected: expected_sha256.to_string(),
+            expected: checksum.expected().to_string(),
             actual,
         });
     }
@@ -132,9 +176,9 @@ pub async fn download_verified(
     Ok(final_path)
 }
 
-async fn sha256_file(path: &Path) -> Result<String> {
+async fn digest_file<D: Digest>(path: &Path) -> Result<String> {
     let mut file = tokio::fs::File::open(path).await?;
-    let mut hasher = Sha256::new();
+    let mut hasher = D::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
         let read = file.read(&mut buf).await?;
@@ -143,5 +187,49 @@ async fn sha256_file(path: &Path) -> Result<String> {
         }
         hasher.update(&buf[..read]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex(&hasher.finalize()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes.iter().fold(String::new(), |mut out, byte| {
+        let _ = write!(out, "{byte:02x}");
+        out
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sha256_matches_the_reference_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("payload");
+        tokio::fs::write(&path, b"abc").await.unwrap();
+
+        assert_eq!(
+            digest_file::<Sha256>(&path).await.unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[tokio::test]
+    async fn sha256_spans_multiple_read_buffers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large");
+        tokio::fs::write(&path, vec![0u8; (1 << 20) + 7])
+            .await
+            .unwrap();
+
+        // Zero-padded bytes must survive: a leading zero dropped by the hex encoder
+        // would only show up on a digest that happens to start with one.
+        let digest = digest_file::<Sha256>(&path).await.unwrap();
+        assert_eq!(digest.len(), 64);
+    }
+
+    #[test]
+    fn hex_pads_single_digit_bytes() {
+        assert_eq!(hex(&[0x00, 0x0f, 0xff]), "000fff");
+    }
 }

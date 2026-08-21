@@ -1,5 +1,4 @@
 mod commands;
-mod config;
 mod logging;
 mod printer;
 mod progress;
@@ -23,7 +22,7 @@ async fn main() -> ExitCode {
     logging::init(cli.global.verbose, cli.global.quiet);
 
     match run(cli).await {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(err) => {
             anstream::eprintln!("{} {err}", "error:".red().bold());
             for cause in err.chain().skip(1) {
@@ -34,7 +33,7 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(cli: Cli) -> anyhow::Result<()> {
+async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     let printer = Printer::new(cli.global.quiet, cli.global.verbose);
 
     let dir = match cli.global.dir {
@@ -54,6 +53,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 
     let ctx = Context {
         printer,
+        instance: discover_instance(&dir)?,
         dir,
         options: ResolveOptions {
             downloads,
@@ -68,7 +68,15 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         progress: !printer.is_quiet() && std::io::stderr().is_terminal(),
     };
 
+    // Only `hy run` has an exit code of its own: it propagates the server's.
+    if let Command::Run(args) = cli.command {
+        return commands::run::run(args, &ctx).await;
+    }
+
     match cli.command {
+        Command::Init(args) => commands::init::init(args, &ctx),
+        Command::Install(args) => commands::install::install(args, &ctx).await,
+        Command::Status(args) => commands::status::status(args, &ctx).await,
         Command::Java(namespace) => match namespace.command {
             JavaCommand::Install(args) => commands::java::install(args, &ctx).await,
             JavaCommand::List(args) => commands::java::list(args, &ctx).await,
@@ -77,6 +85,18 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             JavaCommand::Uninstall(args) => commands::java::uninstall(args, &ctx).await,
             JavaCommand::Dir => commands::java::dir(&ctx),
         },
+        Command::Run(_) => unreachable!("handled above"),
+    }
+    .map(|()| ExitCode::SUCCESS)
+}
+
+/// Only a real failure is an error; an unparsable `hytale.toml` must not be swallowed into
+/// silently ignoring settings the operator wrote down.
+fn discover_instance(dir: &std::path::Path) -> anyhow::Result<Option<hy_instance::Instance>> {
+    match hy_instance::Instance::discover(dir) {
+        Ok(instance) => Ok(Some(instance)),
+        Err(hy_instance::Error::NotFound(_)) => Ok(None),
+        Err(err) => Err(err.into()),
     }
 }
 

@@ -19,10 +19,10 @@
 use std::path::{Path, PathBuf};
 
 use etcetera::BaseStrategy;
-use fs4::fs_std::FileExt;
+use fs4::{FileExt, TryLockError};
 
 use crate::adoptium::ReleaseAsset;
-use crate::download::{ProgressReporter, download_verified};
+use crate::download::{Checksum, ProgressReporter, download_verified};
 use crate::error::{Error, Result};
 use crate::key::InstallKey;
 use crate::platform::ArchiveKind;
@@ -58,8 +58,8 @@ impl Store {
                 root: PathBuf::from(home),
             });
         }
-        let strategy = etcetera::choose_base_strategy()
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        let strategy =
+            etcetera::choose_base_strategy().map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(Self {
             root: strategy.data_dir().join("hy"),
         })
@@ -144,8 +144,8 @@ impl Store {
             http,
             &asset.url,
             &asset.name,
-            &asset.sha256,
-            asset.size,
+            &Checksum::Sha256(asset.sha256.clone()),
+            Some(asset.size),
             &self.cache_dir(),
             progress,
         )
@@ -177,11 +177,7 @@ impl Store {
 
         std::fs::rename(&source, &target).or_else(|err| {
             // A cross-device rename can happen if the store root spans filesystems.
-            if target.is_dir() {
-                Ok(())
-            } else {
-                Err(err)
-            }
+            if target.is_dir() { Ok(()) } else { Err(err) }
         })?;
 
         Ok(ManagedInstall {
@@ -210,15 +206,13 @@ impl Store {
             .truncate(false)
             .open(&path)?;
 
-        // `try_lock_exclusive` returns `Ok(false)` when the lock is held elsewhere — it is
-        // not an error. Treating contention as success would let two processes download to
-        // the same `.part` file.
-        match FileExt::try_lock_exclusive(&file)? {
-            true => {}
-            false => {
+        match FileExt::try_lock(&file) {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
                 tracing::info!("waiting for another process to finish installing {key}");
-                FileExt::lock_exclusive(&file)?;
+                FileExt::lock(&file)?;
             }
+            Err(TryLockError::Error(err)) => return Err(err.into()),
         }
         Ok(LockGuard { file })
     }
@@ -269,27 +263,20 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// `try_lock_exclusive` reports contention as `Ok(false)`, not `Err`.
-    ///
-    /// Getting this wrong is not a hypothetical: treating contention as an error let two
-    /// concurrent installs past the lock and into the same `.part` file.
     #[test]
-    fn contention_is_ok_false_not_err() {
+    fn contention_is_distinguishable_from_io_failure() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("install.lock");
 
         let first = std::fs::File::create(&path).unwrap();
-        assert!(
-            FileExt::try_lock_exclusive(&first).unwrap(),
-            "an uncontended lock should be acquired"
-        );
+        FileExt::try_lock(&first).expect("an uncontended lock should be acquired");
 
         // A separate open file description contends even within one process.
         let second = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-        assert!(
-            !FileExt::try_lock_exclusive(&second).unwrap(),
-            "a contended lock must report Ok(false), so callers wait instead of proceeding"
-        );
+        assert!(matches!(
+            FileExt::try_lock(&second),
+            Err(TryLockError::WouldBlock)
+        ));
     }
 
     #[test]

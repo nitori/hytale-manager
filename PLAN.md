@@ -138,7 +138,7 @@ provisions one transparently. `hy java install` exists only for pre-warming and 
 
 **Stage A — decide which version is wanted.** First match wins:
 
-1. `-p` / `--java <version|path>` on the command line
+1. `-j` / `--java <version|path>` on the command line
 2. `.java-version` pin file in the instance directory
 3. `[java] version` requirement in `hytale.toml`
 4. Built-in default: `>=25`
@@ -150,8 +150,10 @@ provisions one transparently. `hy java install` exists only for pre-warming and 
    Windows registry — **only if it satisfies the requirement**
 3. **Auto-download** the newest matching Temurin from Adoptium into the managed store
 
-Then, if no `.java-version` exists, write the resolved version to it so subsequent runs are
-reproducible.
+Commands that *provision* Java — `hy java install`, and later `hy install` and the first
+`hy run` — write the resolved version to `.java-version` if no pin exists yet, so
+subsequent runs are reproducible. Query commands (`hy java find`, `hy status`) resolve
+without writing: inspecting an instance must not modify it.
 
 Stage B step 3 prints what it is doing and why (`no Java 25+ found; installing
 temurin-25.0.4.1+1`), never silently. A system JDK that is present but too old is reported
@@ -254,8 +256,7 @@ implemented**, leaving room for Corretto/Zulu/Graal without designing for them n
 hy init <dir>                     scaffold instance + hytale.toml
 hy install [<dir>]                provision Java → bootstrap jar → device auth → /update setup
 hy auth login|status              drive /auth on stdin, surface the device code
-hy run [-- <server args>]         replaces start.sh
-hy console <cmd>                  send a command to the running server
+hy run [-- <server args>]         replaces start.sh; foreground, no subcommands
 hy status                         instance version, Java, running state, port
 hy update check|download|apply|patchline
 hy backup create|list|restore <id>|prune --keep N
@@ -265,9 +266,25 @@ hy version | hy self update
 
 Global flags: `-q/-v`, `--color`, `--offline`, `--dir <instance>`, `--no-java-download`.
 
-`-p` / `--java <version|path>` is accepted by every JVM-touching command (`run`, `install`,
-`update`, `console`, `status`), mirroring `uv run -p`. If the requested version is absent it
-is installed automatically, subject to the escape hatches above.
+`-j` / `--java <version|path>` is accepted by every JVM-touching command (`run`, `install`,
+`update`, `status`). If the requested version is absent it is installed automatically,
+subject to the escape hatches above.
+
+### Process model: foreground only
+
+`hy run` *is* the server process — it does not daemonise. Ctrl-C stops it, the exit code
+propagates, and running it under tmux/screen or a systemd unit is the supported way to keep
+it alive. No `hy start`/`stop`/`restart`: that reimplements a process supervisor badly, and
+a generated unit file (optional, phase 6) gets the same result by calling `hy run`.
+
+Nothing about `hy run` is closer to `uv run` than to `cargo run` — an instance has exactly
+one thing to run, so no positional argument is required. `-- <server args>` passes through,
+mirroring the wrapper's trailing `"$@"`.
+
+**No `hy console`, and no control socket.** An admin channel a second process can connect
+to is attack surface for a service already exposed on UDP; the value does not justify it.
+The stdin channel `hy run` holds to its *own child* stays — phase 4's `/auth login device`
+and `/update setup` need it — but nothing listens, so there is nothing to reach.
 
 ### Files `hy` adds to an instance
 
@@ -334,22 +351,69 @@ frequency = 30
 **✅ Phase 1 — `hy-java`.** Adoptium client, managed store with atomic+locked
 installs, system discovery, the two-stage resolution, newest-LTS selection,
 `.java-version` read/write, auto-provisioning. `hy java install|list|find|pin|uninstall|dir`
-and `-p`/`--java`. 23 tests, clippy clean.
+and `-j`/`--java`. 23 tests, clippy clean.
 
-**⬜ Phase 2 — `hy-instance`.** Layout discovery/validation/creation, `hytale.toml` parsing,
-version stamp, one-time `jvm.options` import. Deliverable: `hy init`, `hy status` on an
-existing hand-made install.
+**✅ Phase 2 — `hy-instance`.** Layout accessors, upward discovery, validation findings,
+`hytale.toml` (serde read + `toml_edit` surgical write), one-time `jvm.options` import.
+`hy init` and `hy status`. Pins now land in the instance root rather than the working
+directory. 28 tests.
 
-**⬜ Phase 3 — `hy-run`.** The core. Spawn the JVM with resolved Java + `[java] options` +
-AOT cache from the correct cwd; the exit-8 loop; selective staging application; the stdin console
-channel; graceful shutdown on SIGINT/SIGTERM (and Windows Ctrl-C); log tee to `logs/`.
-Deliverable: `hy run` fully replaces `start.sh`. **Build the console channel first** —
-phases 4 and 5 depend on it.
+**✅ Phase 3 — `hy-run`.** JVM spawn with resolved Java + `[java] options` + AOT from
+`Server/`; the exit-8 loop; selective staging application; graceful shutdown with a
+second-signal force; per-instance run lock; exit-code propagation. `hy run [-- args]`, and
+`hy status` now reports running/stopped. 30 tests, 10 of them driving the supervisor
+against a scripted stub.
 
-**⬜ Phase 4 — `hy-dist` + acquisition.** maven-metadata version listing, the `--bootstrap`
-flow driven over phase 3's console channel, device-code surfacing with a countdown,
-payload extraction, `+x` on `start.sh`, auth-file migration into `Server/`. Deliverable:
-`hy install`, `hy auth login`, `hy update *`.
+**No log tee.** Stdio is inherited, so the terminal is the console and journald captures it
+under systemd — and the server writes its own `logs/` regardless. A tee would only
+duplicate.
+
+**The jar fetch stayed in phase 4.** It is not needed to verify the supervisor: loop
+mechanics (exit 8, crash-within-30s, a server that refuses to stop) are only reproducible
+with a stub, and the real jar is a plain public GET that can be dropped in by hand when
+wanted. `Assets.zip` is *not* a maven artifact, so a server that actually serves needs
+phase 4's bootstrap either way.
+
+Signal handling verified end-to-end against a stub JDK: `SIGTERM` to `hy` alone (not the
+process group) reached the child, and `hy` waited 2.0 s for it to finish saving before
+exiting 0; a second signal escalated to `SIGKILL` (exit 137); a second `hy run` was refused
+while the first held the lock.
+
+**✅ Phase 4 — `hy-dist` + acquisition.** maven-metadata listing and version selection,
+sha1-verified jar download, and the `--bootstrap` flow driven over a piped stdin channel
+with device-code surfacing. `hy install`, plus auto-provisioning from `hy run` the way
+`uv run` installs what it needs. 43 tests across `hy-dist` and the session layer.
+
+`hy auth` and `hy update *` are **not** built: the server re-authenticates as part of a
+bootstrap install, and update checking needs no console (see phase 6).
+
+### Corrections from running the real server (2026-08-22)
+
+Verified against `Server-0.5.9.jar`; several plan assumptions taken from the manual were
+wrong.
+
+- **`/update download`, not `/update setup`.** The jar's own `--bootstrap` help names
+  `/update download` as what populates `Assets.zip`, `start.sh/bat`, and `Server/`;
+  `/update setup` only writes the wrapper scripts. The manual offers them as equivalents.
+- **Console output is ANSI-coloured even when piped**, and every line carries a
+  `[timestamp LEVEL] [Component]` prefix. Markers are matched after stripping escapes, and
+  `NO_COLOR=1` is set on the child as well.
+- **The code expires in 600 s, not the 900 s the manual prints.**
+- **The device code is mixed-case and unhyphenated** (`mF4GgGJz`), not `ABCD-1234`.
+- **`--boot-command` does not drive the device flow.** It looked like a way to avoid piping
+  stdin entirely, but `--bootstrap --boot-command "/auth login device"` booted and idled
+  without ever printing an authorization block. Piped stdin is what works.
+- **Waiting for the `Hytale Server Booted!` marker** rather than for a lull before typing:
+  boot chatter pauses for longer than any safe silence threshold.
+
+The full `--help` surface is now captured, closing that open question. Beyond what the
+manual lists: `--boot-command`, `--identity-token`/`--session-token` (non-interactive
+auth), `--auth-mode insecure`, `--bare`, `--singleplayer`, `--universe`, `--mods`,
+`--backup-max-count`/`--backup-archive-max-count` (both default 5), `--validate-assets`,
+`--verify-worlds`, `-t/--transport`.
+
+**Not verified:** completing device authorisation and the 3.3 GB payload extraction, which
+need a real Hytale account. Everything up to the code prompt runs against the live server.
 
 **⬜ Phase 5 — `hy-backup`.** Cold snapshot of `universe/` + config JSONs + `mods/` into a
 timestamped archive, with stop-then-restart-if-running. Restore with a pre-restore safety

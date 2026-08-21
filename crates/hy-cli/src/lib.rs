@@ -60,8 +60,74 @@ pub enum ColorChoice {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Set up a server instance in a directory
+    Init(InitArgs),
+
+    /// Download and set up a server, authenticating it
+    Install(InstallArgs),
+
+    /// Run the server, restarting it to apply updates
+    Run(RunArgs),
+
+    /// Show the state of a server instance
+    Status(StatusArgs),
+
     /// Manage Java runtimes
     Java(JavaNamespace),
+}
+
+#[derive(Debug, Args)]
+pub struct InitArgs {
+    /// The instance directory; defaults to the working directory
+    #[arg(value_name = "DIR")]
+    pub dir: Option<PathBuf>,
+
+    #[command(flatten)]
+    pub selector: JavaSelector,
+}
+
+#[derive(Debug, Args)]
+pub struct StatusArgs {
+    #[command(flatten)]
+    pub selector: JavaSelector,
+}
+
+#[derive(Debug, Args)]
+pub struct RunArgs {
+    #[command(flatten)]
+    pub selector: JavaSelector,
+
+    /// Fail instead of installing a missing server
+    #[arg(long)]
+    pub no_install: bool,
+
+    /// Arguments passed through to the server, after `--`
+    #[arg(last = true, value_name = "SERVER_ARGS")]
+    pub server_args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+// `--version` here means the server's, not `hy`'s; `hy --version` still reports the tool.
+#[command(disable_version_flag = true)]
+pub struct InstallArgs {
+    /// The instance directory; defaults to the working directory
+    #[arg(value_name = "DIR")]
+    pub dir: Option<PathBuf>,
+
+    /// The server version; defaults to the newest on the patchline
+    #[arg(long, value_name = "VERSION")]
+    pub version: Option<String>,
+
+    /// Which channel to install from
+    #[arg(long, value_name = "release|pre-release")]
+    pub patchline: Option<String>,
+
+    /// Reinstall even if a server is already present
+    #[arg(long)]
+    pub force: bool,
+
+    #[command(flatten)]
+    pub selector: JavaSelector,
 }
 
 #[derive(Debug, Args)]
@@ -91,13 +157,18 @@ pub enum JavaCommand {
     Dir,
 }
 
-/// The `-p` / `--java` selector, shared by every command that needs a JVM.
+/// The `-j` / `--java` selector, shared by every command that needs a JVM.
 #[derive(Debug, Args, Clone)]
 pub struct JavaSelector {
     /// The Java version to use, e.g. `25`, `25.0.4`, `>=25`, `lts`, `latest`, or a path
     ///
     /// If no matching runtime is installed, one is downloaded automatically.
-    #[arg(short = 'p', long = "java", value_name = "VERSION|PATH", env = "HY_JAVA")]
+    #[arg(
+        short = 'j',
+        long = "java",
+        value_name = "VERSION|PATH",
+        env = "HY_JAVA"
+    )]
     pub java: Option<String>,
 }
 

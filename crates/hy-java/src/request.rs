@@ -60,9 +60,7 @@ impl VersionRequest {
             VersionSpec::Any | VersionSpec::Latest => true,
             VersionSpec::Lts => KNOWN_LTS.contains(&version.major()),
             VersionSpec::Prefix(prefix) => version.starts_with(prefix),
-            VersionSpec::AtLeast(bound) => {
-                *version >= JavaVersion::new(bound.clone(), None)
-            }
+            VersionSpec::AtLeast(bound) => *version >= JavaVersion::new(bound.clone(), None),
         }
     }
 
@@ -200,7 +198,10 @@ mod tests {
         assert_eq!(r.spec, VersionSpec::Prefix(vec![25, 0, 4, 1]));
 
         // The manual calls it Adoptium; accept that spelling.
-        assert_eq!(parse("adoptium@25").distribution, Some(JavaDistribution::Temurin));
+        assert_eq!(
+            parse("adoptium@25").distribution,
+            Some(JavaDistribution::Temurin)
+        );
     }
 
     #[test]

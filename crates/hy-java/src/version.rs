@@ -162,11 +162,15 @@ mod tests {
     #[test]
     fn parses_release_names() {
         assert_eq!(
-            JavaVersion::from_release_name("jdk-25.0.4.1+1").unwrap().to_string(),
+            JavaVersion::from_release_name("jdk-25.0.4.1+1")
+                .unwrap()
+                .to_string(),
             "25.0.4.1+1"
         );
         assert_eq!(
-            JavaVersion::from_release_name("jdk8u462-b08").unwrap().to_string(),
+            JavaVersion::from_release_name("jdk8u462-b08")
+                .unwrap()
+                .to_string(),
             "8.0.462+8"
         );
     }

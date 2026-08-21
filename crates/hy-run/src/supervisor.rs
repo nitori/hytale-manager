@@ -1,0 +1,121 @@
+//! The run loop.
+//!
+//! The server never restarts itself: it exits with code 8 to ask for one. Every other exit
+//! code ends the loop, matching `start.sh`.
+
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+use hy_instance::Instance;
+use tokio::process::Command;
+
+use crate::error::Result;
+use crate::lock::RunLock;
+use crate::signal::{self, Shutdown};
+use crate::{command, staging};
+
+/// The server asks to be restarted by exiting with this code.
+pub const RESTART_EXIT_CODE: i32 = 8;
+
+/// Below this, a non-zero exit right after an update looks like the update broke it.
+const SUSPECT_CRASH_WINDOW: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone)]
+pub struct RunOptions {
+    pub java: PathBuf,
+    pub server_args: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Outcome {
+    pub code: i32,
+    pub restarts: u32,
+    /// Exited non-zero within [`SUSPECT_CRASH_WINDOW`] of an update being applied.
+    pub suspect_update: bool,
+}
+
+/// Progress callbacks, so this crate never prints.
+pub trait RunReporter: Sync {
+    fn starting(&self, _attempt: u32) {}
+    fn applied_update(&self) {}
+    fn restarting(&self) {}
+    fn stopping(&self) {}
+    fn killing(&self) {}
+}
+
+pub struct NoReporter;
+impl RunReporter for NoReporter {}
+
+pub async fn run(
+    instance: &Instance,
+    options: &RunOptions,
+    reporter: &dyn RunReporter,
+) -> Result<Outcome> {
+    let layout = instance.layout();
+    let _lock = RunLock::acquire(layout.root())?;
+
+    let mut shutdown = Shutdown::new()?;
+    let mut restarts = 0;
+
+    loop {
+        let applied = staging::apply(layout)?;
+        if applied {
+            reporter.applied_update();
+        }
+
+        let spec = command::build(instance, &options.java, &options.server_args)?;
+        reporter.starting(restarts + 1);
+
+        let started = Instant::now();
+        let mut child = Command::new(&spec.program)
+            .args(&spec.args)
+            .current_dir(&spec.working_dir)
+            .kill_on_drop(true)
+            .spawn()?;
+
+        let (status, requested) = wait(&mut child, &mut shutdown, reporter).await?;
+        let elapsed = started.elapsed();
+        let code = signal::exit_code(status);
+
+        // A deliberate stop wins over a restart request: an update that lands exactly as
+        // the operator hits Ctrl-C must not silently bring the server back up.
+        if !requested && code == RESTART_EXIT_CODE {
+            reporter.restarting();
+            restarts += 1;
+            continue;
+        }
+
+        return Ok(Outcome {
+            code,
+            restarts,
+            suspect_update: applied && code != 0 && elapsed < SUSPECT_CRASH_WINDOW,
+        });
+    }
+}
+
+/// Waits for the child, or for a shutdown signal. The bool reports whether a stop was
+/// requested.
+async fn wait(
+    child: &mut tokio::process::Child,
+    shutdown: &mut Shutdown,
+    reporter: &dyn RunReporter,
+) -> Result<(std::process::ExitStatus, bool)> {
+    tokio::select! {
+        status = child.wait() => Ok((status?, false)),
+        _ = shutdown.recv() => {
+            reporter.stopping();
+            signal::request_stop(child);
+
+            // Returning here would hand the shell back while the world is still being
+            // written. A second signal is the operator insisting.
+            tokio::select! {
+                status = child.wait() => Ok((status?, true)),
+                _ = shutdown.recv() => {
+                    reporter.killing();
+                    child.kill().await?;
+                    Ok((child.wait().await?, true))
+                }
+            }
+        }
+    }
+}

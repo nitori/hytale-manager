@@ -104,7 +104,7 @@ crates/
   hy-settings/      layered resolution: CLI flag > HY_* env > <instance>/hytale.toml
                     > ~/.config/hy/hy.toml > defaults
   hy-instance/      the game/ layout: discover, validate, create, path accessors,
-                    installed-version stamp, jvm.options and .java-version read/write
+                    installed-version stamp, .java-version read/write
   hy-java/          Adoptium client, managed store, system discovery, version requests,
                     the resolution ladder, auto-provisioning
   hy-dist/          maven-metadata version listing, bootstrap acquisition, staged-update
@@ -280,8 +280,22 @@ game/
 └── .java-version     resolved Java pin, auto-written on first resolve
 ```
 
-`jvm.options` stays the source of truth the server itself reads; `[java] options` is
-written through to it rather than duplicated at spawn time.
+`jvm.options` is read by `start.sh`, not by the server — the wrapper passes it to the JVM
+as an `@argfile`. Since `hy run` replaces the wrapper, **`hy` is its only consumer**, so
+`[java] options` in `hytale.toml` is the sole source of truth and is passed directly on
+the `java` command line. No argfile, and `hy` never writes `jvm.options`.
+
+`hy` reads that file exactly once: at `hy init` / first adoption of an existing instance,
+its contents are imported into `[java] options`, so hand-tuned settings like `-Xmx8G`
+survive the switch. Afterwards it is ignored — and if a leftover copy disagrees with
+`[java] options`, `hy status` says so rather than letting it look effective.
+
+`start.sh` itself must stay on disk: the server disables its update checker unless it
+detects a launcher script beside `Assets.zip`. `hy` therefore leaves it alone (the
+server's own updater reinstalls it anyway) and simply does not use it.
+
+`-XX:AOTCache=` is governed by `[java] aot`; specifying it by hand in `options` is a
+conflict `hy` reports rather than merges.
 
 ### `hytale.toml` (per instance)
 
@@ -293,7 +307,7 @@ bind      = "0.0.0.0:5520"
 
 [java]
 version = ">=25"             # requirement, not a pin — resolves to newest LTS (25)
-options = ["-Xms2G", "-Xmx4G"]   # written through to jvm.options
+options = ["-Xms2G", "-Xmx4G"]   # sole source of truth; passed straight to `java`
 aot     = true               # -XX:AOTCache=HytaleServer.aot
 
 [backup]
@@ -323,11 +337,11 @@ installs, system discovery, the two-stage resolution, newest-LTS selection,
 and `-p`/`--java`. 23 tests, clippy clean.
 
 **⬜ Phase 2 — `hy-instance`.** Layout discovery/validation/creation, `hytale.toml` parsing,
-version stamp, `jvm.options` round-trip. Deliverable: `hy init`, `hy status` on an
+version stamp, one-time `jvm.options` import. Deliverable: `hy init`, `hy status` on an
 existing hand-made install.
 
-**⬜ Phase 3 — `hy-run`.** The core. Spawn the JVM with resolved Java + jvm.options + AOT cache
-from the correct cwd; the exit-8 loop; selective staging application; the stdin console
+**⬜ Phase 3 — `hy-run`.** The core. Spawn the JVM with resolved Java + `[java] options` +
+AOT cache from the correct cwd; the exit-8 loop; selective staging application; the stdin console
 channel; graceful shutdown on SIGINT/SIGTERM (and Windows Ctrl-C); log tee to `logs/`.
 Deliverable: `hy run` fully replaces `start.sh`. **Build the console channel first** —
 phases 4 and 5 depend on it.

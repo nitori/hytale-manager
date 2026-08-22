@@ -246,7 +246,7 @@ async fn settle(session: &mut Session, printer: Printer) {
 fn echo(printer: Printer, line: &str) {
     let line = bootstrap::strip_ansi(line);
     if !line.trim().is_empty() && !bootstrap::is_divider(&line) {
-        printer.detail(line);
+        printer.relay(line);
     }
 }
 

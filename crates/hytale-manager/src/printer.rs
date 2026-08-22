@@ -13,6 +13,16 @@ use std::fmt::Display;
 
 use owo_colors::OwoColorize;
 
+/// Marks a line as ours. The server's own logging shares this terminal, and its lines carry
+/// a `[timestamp LEVEL] [Component]` prefix of their own; without a tag it is not obvious
+/// which of the two is speaking.
+pub const PREFIX: &str = "[hy]";
+
+/// Dimmed, because it is a marker rather than content.
+pub fn tag() -> String {
+    PREFIX.dimmed().to_string()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Verbosity {
     Quiet,
@@ -44,24 +54,37 @@ impl Printer {
     /// A significant action, e.g. installing a runtime.
     pub fn event(self, message: impl Display) {
         if self.verbosity > Verbosity::Quiet {
-            anstream::eprintln!("{}", message);
+            anstream::eprintln!("{} {}", tag(), message);
         }
     }
 
     /// Supporting detail, indented under the preceding event.
     pub fn detail(self, message: impl Display) {
         if self.verbosity > Verbosity::Quiet {
-            anstream::eprintln!("  {}", message.dimmed());
+            anstream::eprintln!("{}   {}", tag(), message.dimmed());
         }
     }
 
     pub fn warn(self, message: impl Display) {
         if self.verbosity > Verbosity::Quiet {
-            anstream::eprintln!("{} {}", "warning:".yellow().bold(), message);
+            anstream::eprintln!("{} {} {}", tag(), "warning:".yellow().bold(), message);
+        }
+    }
+
+    /// A line produced by the server and passed through by us.
+    ///
+    /// Deliberately untagged: `[hy]` claims we said it, and misattributing the server's
+    /// output is the confusion this prefix exists to prevent.
+    pub fn relay(self, message: impl Display) {
+        if self.verbosity > Verbosity::Quiet {
+            anstream::eprintln!("  {}", message.dimmed());
         }
     }
 
     /// Machine-consumable output.
+    ///
+    /// Never tagged: `hy java find --executable` is meant to be substituted straight into a
+    /// command line.
     pub fn stdout(self, message: impl Display) {
         anstream::println!("{}", message);
     }

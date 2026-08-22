@@ -24,9 +24,9 @@ async fn main() -> ExitCode {
     match run(cli).await {
         Ok(code) => code,
         Err(err) => {
-            anstream::eprintln!("{} {err}", "error:".red().bold());
+            anstream::eprintln!("{} {} {err}", printer::tag(), "error:".red().bold());
             for cause in err.chain().skip(1) {
-                anstream::eprintln!("  {} {cause}", "caused by:".dimmed());
+                anstream::eprintln!("{}   {} {cause}", printer::tag(), "caused by:".dimmed());
             }
             ExitCode::FAILURE
         }

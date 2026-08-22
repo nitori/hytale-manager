@@ -1,8 +1,8 @@
 # hytale-manager
 
 > **Written by an AI.** Nearly every line of this project — the code, the tests, the
-> roadmap in [PLAN.md](PLAN.md), and this sentence — was produced by an LLM, directed and
-> reviewed by a human. Treat it accordingly: read the code before you point it at a server
+> roadmap in [PLAN.md](PLAN.md), and this sentence — was produced by an LLM, directed
+> by a human. Treat it accordingly: read the code before you point it at a server
 > you care about.
 >
 > Its shape is loosely inspired by [uv](https://github.com/astral-sh/uv) — a workspace of

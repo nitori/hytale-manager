@@ -159,7 +159,7 @@ impl Config {
         };
         let config = toml::from_str(&contents).map_err(|source| Error::Parse {
             path: path.to_path_buf(),
-            source,
+            source: Box::new(source),
         })?;
         Ok(Some(config))
     }
@@ -177,7 +177,7 @@ impl Document {
         let contents = std::fs::read_to_string(path).unwrap_or_default();
         let document = contents.parse().map_err(|source| Error::Edit {
             path: path.to_path_buf(),
-            source,
+            source: Box::new(source),
         })?;
         Ok(Self {
             path: path.to_path_buf(),
@@ -190,7 +190,7 @@ impl Document {
             path: path.to_path_buf(),
             document: template.parse().map_err(|source| Error::Edit {
                 path: path.to_path_buf(),
-                source,
+                source: Box::new(source),
             })?,
         })
     }

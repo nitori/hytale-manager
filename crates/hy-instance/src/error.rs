@@ -8,18 +8,20 @@ pub enum Error {
     #[error("{0} is already a Hytale server instance")]
     AlreadyInitialised(PathBuf),
 
+    // The two parser errors are boxed because they dominate the size of every `Result` in
+    // the crate, and of anything that wraps this.
     #[error("failed to parse {path}")]
     Parse {
         path: PathBuf,
         #[source]
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
 
     #[error("failed to parse {path}")]
     Edit {
         path: PathBuf,
         #[source]
-        source: toml_edit::TomlError,
+        source: Box<toml_edit::TomlError>,
     },
 
     #[error("invalid `{key}` in {path}: {message}")]
@@ -34,3 +36,4 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+

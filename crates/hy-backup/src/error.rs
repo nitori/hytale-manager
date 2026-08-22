@@ -23,7 +23,7 @@ pub enum Error {
     Parse {
         path: PathBuf,
         #[source]
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
 
     #[error(transparent)]

@@ -12,8 +12,9 @@
 A CLI for managing Hytale dedicated servers — installation, backups, and running the
 server. The binary is called `hy`.
 
-**Status:** early. `hy init`, `hy install`, `hy run`, `hy backup`, `hy status`, and
-`hy java` work; updates do not yet. See [PLAN.md](PLAN.md) for the roadmap.
+**Status:** early. `hy init`, `hy install`, `hy run`, `hy backup`, `hy status`, `hy java`,
+`hy systemd`, and `hy completions` work; updates do not yet. See [PLAN.md](PLAN.md) for the
+roadmap.
 
 ## Build
 
@@ -33,6 +34,8 @@ cargo test --workspace
 | `hy run [-- ARGS]` | Run the server; `ARGS` pass through to it |
 | `hy backup create\|list\|restore\|prune` | Snapshot and roll back server state |
 | `hy status` | Instance state, layout, version, Java, and backup settings |
+| `hy systemd` | Write a systemd unit for this instance |
+| `hy completions <SHELL>` | Print a completion script |
 
 `hy` searches upwards for the instance, so these work from inside `Server/`.
 
@@ -94,6 +97,42 @@ servers sharing a `universe/` will corrupt it.
 The server runs with `Server/` as its working directory — it disables its own update
 checker otherwise — so **relative paths in `-- ARGS` resolve against `Server/`**, not your
 shell. Use absolute paths there.
+
+### `hy systemd`
+
+Writes a unit for the instance to stdout, so it can go straight where it belongs:
+
+```sh
+hy systemd | sudo tee /etc/systemd/system/hy-main.service
+sudo systemctl enable --now hy-main.service
+```
+
+`-o PATH` writes the file instead, adding `.service` if you left it off — `-o hytale`
+produces `hytale.service`, and the unit takes its name from that file.
+
+It runs as your user and group by default; `--user`/`--group` name another account, and
+`--scope user` produces a `systemctl --user` unit instead (which needs
+`loginctl enable-linger` to survive logout). The advice prints on stderr, so redirecting
+stdout gets only the unit.
+
+**Install as the account the service will run as, first.** Authenticating needs a device
+code typed into a browser — a service cannot do it — and the Java store and credentials are
+per-user, so `sudo -u hytale hy install` is a prerequisite, not an optimisation. `hy systemd`
+warns when the account differs from yours.
+
+The generated unit sets `KillMode=mixed` and `TimeoutStopSec=120` deliberately: the default
+would send the JVM its own `SIGTERM` and then `SIGKILL` it after 90s, both of which cut
+across `hy` asking the server to save.
+
+### Shell completions
+
+```sh
+hy completions bash > /etc/bash_completion.d/hy      # or: eval "$(hy completions bash)"
+hy completions zsh  > ~/.zfunc/_hy
+hy completions fish > ~/.config/fish/completions/hy.fish
+```
+
+`powershell` and `elvish` work too.
 
 ### `hy java`
 

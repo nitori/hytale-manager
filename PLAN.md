@@ -528,8 +528,35 @@ server started from Windows holds a lock no Linux process can see. Observed live
 guard passed and a snapshot of a running world was taken. Recent writes under `Server/` now
 back it up; portable, weaker, and honest about being a heuristic.
 
-**⬜ Phase 6 — polish.** `hy self update`, shell completions from `hy-cli`, README, systemd
-unit generation if wanted.
+**✅ Phase 6 — polish.** Shell completions and systemd unit generation.
+
+`hy completions <shell>` generates from `hy-cli`, which is why the clap definitions live in
+a crate of their own. The script is rendered to a buffer before it is written: clap_complete
+panics on a write error, and `hy completions bash | head` is a reasonable thing to type.
+
+`hy systemd` writes a unit for the instance — to stdout, so it can be redirected into place,
+with every note the operator needs on stderr instead. It defaults to the current user and
+group, `--user`/`--group` name another account, and `--scope user` drops both for a
+`systemctl --user` unit.
+
+Two settings in it are not decoration:
+
+- **`KillMode=mixed`.** The default sends `SIGTERM` to everything in the cgroup, so the JVM
+  would get its own copy and start dying while `hy` was still asking it to save. Mixed
+  signals only the main process, which is the whole design: `hy` sends `shutdown` on the
+  console, waits, and escalates on its own schedule.
+- **`TimeoutStopSec=120`.** Enough for a large world to be written. The default 90 s would
+  `SIGKILL` mid-save.
+
+`Restart=on-failure` works because a requested stop already exits 0 (phase 3), so
+`systemctl stop` is not read as a crash.
+
+The one thing generation cannot solve: **the service account must run `hy install` itself**
+first. Authenticating needs a device code typed into a browser, the Java store and `auth.enc`
+are per-user, and a unit running as `hytale` will not inherit yours. `hy systemd` warns when
+the account differs from the current one.
+
+`hy self update` is deferred, not dropped — there is nowhere to fetch a release from yet.
 
 ### Optional, not committed
 
@@ -608,7 +635,7 @@ Requires a real server payload:
   there.
 - **Multi-instance registry** deferred. cwd/`--dir` addressing only; a global named registry
   can be layered on later without breaking the model.
-- **systemd unit generation** deferred to phase 6.
+- **`hy self update`** still deferred: no release channel to fetch from.
 - **Protocol version tolerance:** currently client and server must match exactly, so a
   server must update immediately on release. The manual promises ±2 tolerance later —
   until then `hy update` should treat "update available" as urgent, not optional.

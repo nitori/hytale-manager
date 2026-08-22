@@ -84,6 +84,8 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             BackupCommand::Restore(args) => commands::backup::restore(args, &ctx),
             BackupCommand::Prune(args) => commands::backup::prune(args, &ctx),
         },
+        Command::Systemd(args) => commands::systemd::systemd(args, &ctx),
+        Command::Completions(args) => commands::completions::completions(args, &ctx),
         Command::Java(namespace) => match namespace.command {
             JavaCommand::Install(args) => commands::java::install(args, &ctx).await,
             JavaCommand::List(args) => commands::java::list(args, &ctx).await,

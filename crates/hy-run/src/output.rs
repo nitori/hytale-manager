@@ -63,18 +63,29 @@ impl StopHandle {
 mod tests {
     use super::*;
 
+    /// The UI can ask for a stop between the child spawning and the supervisor reaching
+    /// its select, so the request has to survive having no listener.
     #[tokio::test]
-    async fn a_stop_is_observed() {
+    async fn a_stop_with_nobody_waiting_yet_is_kept() {
         let handle = StopHandle::new();
-        let waiter = handle.clone();
-        tokio::spawn(async move { waiter.requested().await })
-            .await
-            .ok();
         handle.stop();
-        // A notification issued before anyone waits is kept, so the request is not lost.
         tokio::time::timeout(std::time::Duration::from_millis(200), handle.requested())
             .await
             .expect("a stop requested before the wait should still arrive");
+    }
+
+    #[tokio::test]
+    async fn a_waiting_supervisor_is_woken() {
+        let handle = StopHandle::new();
+        let waiter = handle.clone();
+        let parked = tokio::spawn(async move { waiter.requested().await });
+        tokio::task::yield_now().await;
+
+        handle.stop();
+        tokio::time::timeout(std::time::Duration::from_millis(200), parked)
+            .await
+            .expect("a parked waiter should be woken")
+            .expect("the waiting task should not panic");
     }
 
     #[tokio::test]

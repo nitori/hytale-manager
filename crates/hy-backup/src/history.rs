@@ -46,7 +46,10 @@ impl History {
         let Ok(text) = std::fs::read_to_string(&path) else {
             return Ok(Self::default());
         };
-        toml::from_str(&text).map_err(|source| Error::Parse { path, source })
+        toml::from_str(&text).map_err(|source| Error::Parse {
+            path,
+            source: Box::new(source),
+        })
     }
 
     pub fn write(&self, dir: &Path) -> Result<()> {

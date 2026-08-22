@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+pub use clap_complete::Shell;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "hy",
@@ -77,6 +79,60 @@ pub enum Command {
 
     /// Manage Java runtimes
     Java(JavaNamespace),
+
+    /// Write a systemd unit that runs this instance
+    Systemd(SystemdArgs),
+
+    /// Print a shell completion script
+    Completions(CompletionsArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CompletionsArgs {
+    /// The shell to generate for
+    #[arg(value_name = "SHELL")]
+    pub shell: Shell,
+}
+
+#[derive(Debug, Args)]
+pub struct SystemdArgs {
+    /// Unit name; defaults to `hy-<instance directory>`
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+
+    /// Which systemd instance the unit is for
+    #[arg(long, value_enum, default_value_t = Scope::System)]
+    pub scope: Scope,
+
+    /// The account to run the server as; defaults to the current user
+    #[arg(long, value_name = "USER")]
+    pub user: Option<String>,
+
+    /// The group to run the server as; defaults to the user's primary group
+    #[arg(long, value_name = "GROUP")]
+    pub group: Option<String>,
+
+    /// The `hy` binary to invoke; defaults to this one
+    #[arg(long, value_name = "PATH")]
+    pub exec: Option<PathBuf>,
+
+    /// Write the unit here instead of to stdout; `.service` is added if missing
+    #[arg(short, long, value_name = "PATH")]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Scope {
+    /// `systemctl`, run by root as another account
+    System,
+    /// `systemctl --user`, run as whoever is logged in
+    User,
+}
+
+/// Write the completion script for `shell` to `out`.
+pub fn completions(shell: Shell, out: &mut dyn std::io::Write) {
+    let mut command = <Cli as clap::CommandFactory>::command();
+    clap_complete::generate(shell, &mut command, "hy", out);
 }
 
 #[derive(Debug, Args)]

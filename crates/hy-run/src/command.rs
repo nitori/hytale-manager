@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use hy_instance::Instance;
 
 use crate::error::{Error, Result};
+use crate::shell::Shell;
 
 /// `--assets` is relative because the server resolves it against `Server/`.
 const ASSETS_ARG: &str = "../Assets.zip";
@@ -23,6 +24,21 @@ pub struct ServerCommand {
     pub program: PathBuf,
     pub args: Vec<OsString>,
     pub working_dir: PathBuf,
+}
+
+impl ServerCommand {
+    /// The command line as `shell` would take it, for showing the operator what ran.
+    /// Quoted for reading and pasting, not for re-parsing.
+    pub fn display(&self, shell: Shell) -> String {
+        std::iter::once(shell.quoted_path(&self.program))
+            .chain(
+                self.args
+                    .iter()
+                    .map(|a| shell.quote(&a.to_string_lossy())),
+            )
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 /// `extra` is passed through verbatim, after ours, so an operator can override a default.
@@ -207,6 +223,40 @@ mod tests {
         assert_eq!(
             &args[args.len() - 3..],
             ["--disable-sentry", "--bind", "1:2"]
+        );
+    }
+
+    #[test]
+    fn display_renders_a_pasteable_command_line() {
+        let (_dir, instance) = instance_with("[java]\noptions = [\"-Xmx4G\"]\n");
+        let line = build(&instance, Path::new("/opt/jdk/bin/java"), &[])
+            .unwrap()
+            .display(Shell::Posix);
+
+        assert!(
+            line.starts_with("/opt/jdk/bin/java -Xmx4G -jar HytaleServer.jar"),
+            "{line}"
+        );
+        assert!(line.contains("--assets ../Assets.zip"), "{line}");
+    }
+
+    #[test]
+    fn display_follows_the_shell_for_the_java_path() {
+        let (_dir, instance) = instance_with("");
+        let command = build(&instance, Path::new(r"C:\Program Files\jdk\bin\java.exe"), &[])
+            .unwrap();
+
+        assert!(
+            command.display(Shell::Msys).starts_with("'/c/Program Files/jdk/bin/java.exe'"),
+            "{}",
+            command.display(Shell::Msys)
+        );
+        assert!(
+            command
+                .display(Shell::WindowsNative)
+                .starts_with("\"C:\\Program Files\\jdk\\bin\\java.exe\""),
+            "{}",
+            command.display(Shell::WindowsNative)
         );
     }
 

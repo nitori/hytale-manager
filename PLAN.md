@@ -368,6 +368,16 @@ against a scripted stub.
 under systemd — and the server writes its own `logs/` regardless. A tee would only
 duplicate.
 
+**`hy run` prints the command it starts**, working directory included, since
+`-jar HytaleServer.jar --assets ../Assets.zip` means nothing without knowing it runs from
+`Server/`. Rendering keys off the *shell*, not the platform: on Windows `hy` may be run
+from `cmd`, PowerShell, or Git Bash, and Git Bash needs POSIX quoting with `/c/Users/...`
+paths — a backslash path pasted into bash silently loses `\U`. `MSYSTEM` is the marker
+(Git Bash exports it; `OSTYPE` is a bash builtin that usually is not). Cygwin sets neither
+and mounts drives at `/cygdrive/c`, so it is deliberately left on the Windows-native path
+rather than guessed at. All three variants are compiled and tested everywhere; only
+`Shell::detect` is conditional.
+
 **The jar fetch stayed in phase 4.** It is not needed to verify the supervisor: loop
 mechanics (exit 8, crash-within-30s, a server that refuses to stop) are only reproducible
 with a stub, and the real jar is a plain public GET that can be dropped in by hand when
@@ -378,6 +388,22 @@ Signal handling verified end-to-end against a stub JDK: `SIGTERM` to `hy` alone 
 process group) reached the child, and `hy` waited 2.0 s for it to finish saving before
 exiting 0; a second signal escalated to `SIGKILL` (exit 137); a second `hy run` was refused
 while the first held the lock.
+
+**Shutdown on Windows was broken and is fixed.** `request_stop` called `TerminateProcess`
+there — a hard kill, which is also where the mysterious exit code 1 came from. The JVM was
+already shutting down from the console's `CTRL_C_EVENT`, and we killed it mid-save: no
+hooks, no world write. On Windows the call now does *nothing*, which is correct by
+construction, because the only thing we wake on there is that same console event, which
+the console has already delivered to every attached process.
+
+**A requested stop now exits 0**, whatever the server reported. Otherwise a deliberate
+Ctrl-C surfaces as 130 (or Windows' `STATUS_CONTROL_C_EXIT`, which does not even fit in a
+`u8` and degraded to 1), and systemd under `Restart=on-failure` would restart a server the
+operator just stopped. Codes are still propagated faithfully when the exit was *not*
+requested.
+
+The regression test for this lives in its own test binary: signals are process-wide, so
+running it beside the other supervisor tests made them observe a stop request meant for it.
 
 **✅ Phase 4 — `hy-dist` + acquisition.** maven-metadata listing and version selection,
 sha1-verified jar download, and the `--bootstrap` flow driven over a piped stdin channel
@@ -429,6 +455,10 @@ unit generation if wanted.
 Runnable without any Hytale credentials:
 
 - `cargo test --workspace`; `cargo clippy --workspace -- -D warnings`
+- **Windows paths from Linux:** `cargo clippy --workspace --all-targets --target
+  x86_64-pc-windows-gnu`. The only way this machine covers the `cfg(windows)` branches —
+  the platform-specific logic is otherwise written blind. Keep Windows-only helpers
+  compiled everywhere so their unit tests run here too.
 - **Java, end to end:** `hy java install 25` on a machine with no JDK → verify checksum
   path, atomic rename, `hy java find` resolves it, a wrong-version system JDK is correctly
   rejected in favour of a download

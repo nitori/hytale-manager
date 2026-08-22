@@ -36,12 +36,18 @@ pub async fn run(args: RunArgs, ctx: &Context) -> Result<ExitCode> {
     };
     let reporter = Reporter {
         printer: ctx.printer,
+        shell: hy_run::Shell::detect(),
     };
 
     let outcome = hy_run::run(instance, &options, &reporter).await?;
     report(ctx, instance, &outcome);
 
-    // The wrapper propagates the server's exit code; systemd and shell scripts read it.
+    // A stop the operator asked for is a success, whatever the server exited with. Reporting
+    // 130 (or Windows' 0xC000013A) would make systemd read a deliberate stop as a failure
+    // and, under `Restart=on-failure`, start the server straight back up.
+    if outcome.stopped_by_request {
+        return Ok(ExitCode::SUCCESS);
+    }
     Ok(ExitCode::from(u8::try_from(outcome.code).unwrap_or(1)))
 }
 
@@ -95,7 +101,7 @@ fn report(ctx: &Context, instance: &hy_instance::Instance, outcome: &Outcome) {
         return;
     }
 
-    if outcome.code == 0 {
+    if outcome.stopped_by_request || outcome.code == 0 {
         ctx.printer.event("Server stopped".to_string());
     } else {
         ctx.printer
@@ -105,12 +111,20 @@ fn report(ctx: &Context, instance: &hy_instance::Instance, outcome: &Outcome) {
 
 struct Reporter {
     printer: Printer,
+    shell: hy_run::Shell,
 }
 
 impl RunReporter for Reporter {
-    fn starting(&self, attempt: u32) {
+    fn starting(&self, attempt: u32, command: &hy_run::ServerCommand) {
         if attempt == 1 {
             self.printer.event("Starting the server".bold().to_string());
+        }
+        // Reprinted on every restart: the AOT flag appears once the cache exists, so the
+        // command genuinely differs between cycles.
+        self.printer
+            .detail(format!("in {}", self.shell.path(&command.working_dir)));
+        self.printer.detail(command.display(self.shell));
+        if attempt == 1 {
             self.printer.detail("press Ctrl-C to stop");
         }
     }

@@ -41,9 +41,14 @@ impl Shutdown {
 
 /// Ask the server to stop, giving it the chance to save.
 ///
-/// A terminal delivers Ctrl-C to the whole process group, so the JVM has usually seen it
-/// already; this covers `kill` aimed at `hy` alone, and systemd's `KillMode=mixed`.
-/// Windows has no SIGTERM equivalent, so the JVM's shutdown hooks do not run there.
+/// On unix a terminal delivers Ctrl-C to the whole process group, so the JVM has usually
+/// seen it already; the explicit signal covers `kill` aimed at `hy` alone, and systemd's
+/// `KillMode=mixed`.
+///
+/// On Windows this deliberately does **nothing**. There is no targeted SIGTERM, and the
+/// only thing we wake on there is the console's `CTRL_C_EVENT` — which the console has
+/// already delivered to every process attached to it, the JVM included. Anything we could
+/// send is `TerminateProcess`, which kills the server mid-save. Waiting is the whole job.
 pub fn request_stop(child: &mut Child) {
     #[cfg(unix)]
     {
@@ -55,7 +60,7 @@ pub fn request_stop(child: &mut Child) {
 
     #[cfg(not(unix))]
     {
-        let _ = child.start_kill();
+        let _ = child;
     }
 }
 

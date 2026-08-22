@@ -28,15 +28,19 @@ pub struct RunOptions {
 
 #[derive(Debug, Clone)]
 pub struct Outcome {
+    /// The server's own exit code, whatever it was.
     pub code: i32,
     pub restarts: u32,
+    /// The operator asked for the stop, so the exit code describes how the server was
+    /// interrupted rather than whether anything went wrong.
+    pub stopped_by_request: bool,
     /// Exited non-zero within [`SUSPECT_CRASH_WINDOW`] of an update being applied.
     pub suspect_update: bool,
 }
 
 /// Progress callbacks, so this crate never prints.
 pub trait RunReporter: Sync {
-    fn starting(&self, _attempt: u32) {}
+    fn starting(&self, _attempt: u32, _command: &crate::ServerCommand) {}
     fn applied_update(&self) {}
     fn restarting(&self) {}
     fn stopping(&self) {}
@@ -64,7 +68,7 @@ pub async fn run(
         }
 
         let spec = command::build(instance, &options.java, &options.server_args)?;
-        reporter.starting(restarts + 1);
+        reporter.starting(restarts + 1, &spec);
 
         let started = Instant::now();
         let mut child = Command::new(&spec.program)
@@ -88,7 +92,11 @@ pub async fn run(
         return Ok(Outcome {
             code,
             restarts,
-            suspect_update: applied && code != 0 && elapsed < SUSPECT_CRASH_WINDOW,
+            stopped_by_request: requested,
+            suspect_update: !requested
+                && applied
+                && code != 0
+                && elapsed < SUSPECT_CRASH_WINDOW,
         });
     }
 }

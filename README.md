@@ -45,8 +45,13 @@ propagates the server's exit code — use tmux/screen or a systemd unit to keep 
 There is no `hy start`/`stop`, and no control socket.
 
 Ctrl-C (or `SIGTERM`) asks the server to stop and waits for it to save; a second one kills
-it. One `hy run` per instance is enforced by a lock file, since two servers sharing a
-`universe/` will corrupt it.
+it. A stop you asked for exits 0 even though the server reports 130, so systemd does not
+read it as a failure. One `hy run` per instance is enforced by a lock file, since two
+servers sharing a `universe/` will corrupt it.
+
+The server runs with `Server/` as its working directory — it disables its own update
+checker otherwise — so **relative paths in `-- ARGS` resolve against `Server/`**, not your
+shell. Use absolute paths there.
 
 ### `hy java`
 

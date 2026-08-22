@@ -34,16 +34,23 @@ async fn a_requested_stop_waits_for_the_server_then_reports_success() {
     let saved = dir.path().join("saved");
     let ready = dir.path().join("ready");
 
-    // Stands in for the server: takes a moment to "save", then exits as a JVM would.
+    // Stands in for a server whose console is not reading — so the `shutdown` command is
+    // written but ignored, and only the signal fallback actually stops it.
+    let console = dir.path().join("console");
     let java = dir.path().join("java-stub");
     std::fs::write(
         &java,
         format!(
+            // `sh` points a background job's stdin at /dev/null, so the console reader
+            // needs its own duplicate of the real one.
             "#!/bin/sh\n\
+             exec 3<&0\n\
              trap 'sleep 1; echo done > \"{saved}\"; exit 130' TERM INT\n\
+             (while read -r line <&3; do echo \"$line\" >> \"{console}\"; done) &\n\
              echo ready > \"{ready}\"\n\
              while true; do sleep 0.1; done\n",
             saved = saved.display(),
+            console = console.display(),
             ready = ready.display(),
         ),
     )
@@ -53,6 +60,7 @@ async fn a_requested_stop_waits_for_the_server_then_reports_success() {
     let options = RunOptions {
         java,
         server_args: Vec::new(),
+        forward_stdin: false,
     };
     let supervised = tokio::spawn(async move {
         hy_run::run(&instance, &options, &NoReporter).await
@@ -69,6 +77,12 @@ async fn a_requested_stop_waits_for_the_server_then_reports_success() {
     assert!(
         saved.exists(),
         "the supervisor returned before the server finished saving"
+    );
+    // The console command is tried first, and reaches the server even when it is ignored:
+    // in a terminal that never raises a control event this is the only thing that works.
+    assert_eq!(
+        std::fs::read_to_string(&console).unwrap_or_default().trim(),
+        "shutdown"
     );
     assert!(outcome.stopped_by_request);
     assert_eq!(outcome.code, 130, "the server's own code is still reported");

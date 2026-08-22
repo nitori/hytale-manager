@@ -12,6 +12,7 @@ use tokio::process::Command;
 use crate::error::Result;
 use crate::lock::RunLock;
 use crate::signal::{self, Shutdown};
+use crate::console::{self, Console};
 use crate::{command, staging};
 
 /// The server asks to be restarted by exiting with this code.
@@ -24,7 +25,13 @@ const SUSPECT_CRASH_WINDOW: Duration = Duration::from_secs(30);
 pub struct RunOptions {
     pub java: PathBuf,
     pub server_args: Vec<String>,
+    /// Forward this process's stdin to the server. Off when nothing is typing at it — a
+    /// systemd unit — and later when a UI supplies input instead.
+    pub forward_stdin: bool,
 }
+
+/// How long the server gets to act on `shutdown` before the signal is tried as well.
+const CONSOLE_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct Outcome {
@@ -59,6 +66,7 @@ pub async fn run(
     let _lock = RunLock::acquire(layout.root())?;
 
     let mut shutdown = Shutdown::new()?;
+    let console = Console::new(options.forward_stdin);
     let mut restarts = 0;
 
     loop {
@@ -74,10 +82,16 @@ pub async fn run(
         let mut child = Command::new(&spec.program)
             .args(&spec.args)
             .current_dir(&spec.working_dir)
+            .stdin(std::process::Stdio::piped())
             .kill_on_drop(true)
             .spawn()?;
 
-        let (status, requested) = wait(&mut child, &mut shutdown, reporter).await?;
+        if let Some(stdin) = child.stdin.take() {
+            console.attach(stdin).await;
+        }
+
+        let (status, requested) = wait(&mut child, &mut shutdown, &console, reporter).await?;
+        console.detach().await;
         let elapsed = started.elapsed();
         let code = signal::exit_code(status);
 
@@ -106,12 +120,23 @@ pub async fn run(
 async fn wait(
     child: &mut tokio::process::Child,
     shutdown: &mut Shutdown,
+    console: &Console,
     reporter: &dyn RunReporter,
 ) -> Result<(std::process::ExitStatus, bool)> {
     tokio::select! {
         status = child.wait() => Ok((status?, false)),
         _ = shutdown.recv() => {
             reporter.stopping();
+
+            // The console command is the portable route and the only one that works where
+            // the terminal never raises a control event. The signal is the belt to its
+            // braces, and covers a server whose console is not reading.
+            if console.send(console::SHUTDOWN_COMMAND).await
+                && let Ok(status) =
+                    tokio::time::timeout(CONSOLE_SHUTDOWN_GRACE, child.wait()).await
+            {
+                return Ok((status?, true));
+            }
             signal::request_stop(child);
 
             // Returning here would hand the shell back while the world is still being

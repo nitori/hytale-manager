@@ -387,6 +387,30 @@ process group) reached the child, and `hy` waited 2.0 s for it to finish saving 
 exiting 0; a second signal escalated to `SIGKILL` (exit 137); a second `hy run` was refused
 while the first held the lock.
 
+**`hy` owns the child's stdin.** Not for tidiness — for correctness. A Ctrl-C typed into a
+terminal that does not raise a console control event (Git Bash's mintty) arrives at the JVM
+as a literal `0x03` byte instead. jline reads it in raw mode, turns it into an interrupt,
+and the server's console reader thread ends silently: the server keeps running, accepts no
+further commands, and cannot be stopped except by killing it. Observed on Windows.
+
+Holding the pipe means `0x03` never reaches the child, and stopping is done by sending the
+server's own **`shutdown`** command — which works identically everywhere. The signal stays
+as a fallback after a 5 s grace, for a server whose console is not reading.
+
+Correction: an earlier note here said no stop command existed and shutdown had to be
+signal-based. It does exist — `shutdown`, undocumented in the manual, and neither `stop`
+nor `exit` is accepted.
+
+The input side is a seam: `Console::new(forward_terminal)` reads the terminal today, and a
+UI will call `Console::send` instead. The writer rebinds on each exit-8 restart while the
+reader stays put — there is one terminal, and two readers would race for keystrokes.
+
+The terminal is read on a **plain OS thread, never `tokio::io::stdin`**. That reads on the
+blocking pool, and dropping the runtime waits for blocking tasks — so a read parked on a
+silent terminal kept `hy` alive after the server had already exited, until a key was
+pressed to release it. Reproduced under a pty (`exit=124`, hung) and fixed (`exit=0` in
+3 s for a server that runs 2 s). Detached threads are not waited for.
+
 **Shutdown on Windows was broken and is fixed.** `request_stop` called `TerminateProcess`
 there — a hard kill, which is also where the mysterious exit code 1 came from. The JVM was
 already shutting down from the console's `CTRL_C_EVENT`, and we killed it mid-save: no
@@ -479,6 +503,17 @@ back it up; portable, weaker, and honest about being a heuristic.
 unit generation if wanted.
 
 ### Optional, not committed
+
+- **A console UI.** `ratatui` + `crossterm`, with `ansi-to-tui` to keep the server's colours
+  and `tui-textarea` for input: a scrolling output pane above, an input line below, so
+  typing is not interleaved with log output. The stdin ownership above is already the seam
+  it plugs into — pass `forward_terminal: false` and drive `Console::send` from the UI.
+
+  Three constraints it has to respect. Output must fall back to plain passthrough when
+  stdout is not a terminal, or a systemd unit fills journald with escape sequences. It has
+  to survive the exit-8 restart rather than tearing down. And piping the server's stdout
+  drops its console to `dumb-color` — which costs nothing once the UI supplies the prompt
+  and line editing itself, but does mean the UI must be good enough to replace jline.
 
 - **`hy plugin`** — manage installed and enabled plugins, enabling by symlink into `mods/`
   so a disabled plugin stays on disk. Downloads would stay manual: CurseForge has a Core

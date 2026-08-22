@@ -60,6 +60,8 @@ fn options(java: PathBuf) -> RunOptions {
     RunOptions {
         java,
         server_args: Vec::new(),
+        // The test harness's stdin is not the server's to consume.
+        forward_stdin: false,
     }
 }
 

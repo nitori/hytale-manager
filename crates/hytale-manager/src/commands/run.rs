@@ -1,5 +1,6 @@
 //! `hy run` — supervise the server.
 
+use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
@@ -33,6 +34,9 @@ pub async fn run(args: RunArgs, ctx: &Context) -> Result<ExitCode> {
     let options = RunOptions {
         java: resolved.executable,
         server_args: args.server_args,
+        // Nothing is typing at a systemd unit or a CI job, and consuming a redirected
+        // stdin there would steal input the operator meant for something else.
+        forward_stdin: std::io::stdin().is_terminal(),
     };
     let reporter = Reporter {
         printer: ctx.printer,

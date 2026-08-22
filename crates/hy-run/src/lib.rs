@@ -7,6 +7,7 @@
 //! output under systemd. Nothing listens on a socket.
 
 pub mod command;
+pub mod console;
 pub mod error;
 pub mod lock;
 pub mod session;
@@ -16,6 +17,7 @@ pub mod staging;
 pub mod supervisor;
 
 pub use command::ServerCommand;
+pub use console::Console;
 pub use error::{Error, Result};
 pub use lock::RunLock;
 pub use session::Session;

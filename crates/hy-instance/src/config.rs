@@ -61,8 +61,9 @@ pub struct BackupSection {
     #[serde(default = "default_keep")]
     pub keep: usize,
 
-    #[serde(default = "default_exclude")]
-    pub exclude: Vec<String>,
+    /// Entries under `Server/` to snapshot.
+    #[serde(default = "default_include")]
+    pub include: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -111,11 +112,29 @@ fn default_frequency() -> u32 {
     30
 }
 
-/// Re-downloadable or regenerated, so not worth snapshotting.
-fn default_exclude() -> Vec<String> {
-    ["Assets.zip", ".cache", "logs"]
-        .map(str::to_string)
-        .to_vec()
+/// State worth keeping, named explicitly rather than filtered out of everything.
+///
+/// An allowlist fails closed: something new the server writes is missed until someone adds
+/// it. A denylist fails open, which on a real 0.5.9 install meant sweeping in the 106 MB
+/// `HytaleServer.aot.config`, the `telemetry/` spool, and `auth.enc` — none of which
+/// belong in an archive that gets copied around.
+///
+/// `universe/` is what the server's own hot backups already cover; the JSONs are the part
+/// it does not, and are a few kilobytes each.
+///
+/// `mods/` is deliberately absent: jars are re-obtainable artifacts rather than state, and
+/// they would dominate the size of every snapshot. Add it here if a mod turns out to keep
+/// its data beside itself.
+fn default_include() -> Vec<String> {
+    [
+        "universe",
+        "config.json",
+        "bans.json",
+        "permissions.json",
+        "whitelist.json",
+    ]
+    .map(str::to_string)
+    .to_vec()
 }
 
 impl Default for JavaSection {
@@ -132,7 +151,7 @@ impl Default for BackupSection {
     fn default() -> Self {
         Self {
             keep: default_keep(),
-            exclude: default_exclude(),
+            include: default_include(),
         }
     }
 }
@@ -241,7 +260,7 @@ options = []               # JVM arguments, e.g. [\"-Xms2G\", \"-Xmx4G\"]
 
 [backup]
 # keep    = 10
-# exclude = [\"Assets.zip\", \".cache\", \"logs\"]
+# include = [\"universe\", \"mods\", \"config.json\", ...]  # entries under Server/
 
 # Periodic backups, performed by the server itself.
 [server.hot_backup]
@@ -296,7 +315,7 @@ mod tests {
         assert_eq!(config.server.hot_backup.frequency, 15);
         // Untouched keys keep their defaults rather than resetting to empty.
         assert!(config.server.hot_backup.enabled);
-        assert_eq!(config.backup.exclude, default_exclude());
+        assert_eq!(config.backup.include, default_include());
     }
 
     #[test]

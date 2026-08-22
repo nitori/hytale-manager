@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod init;
 pub mod install;
 pub mod java;

@@ -72,8 +72,68 @@ pub enum Command {
     /// Show the state of a server instance
     Status(StatusArgs),
 
+    /// Snapshot, restore, and prune server state
+    Backup(BackupNamespace),
+
     /// Manage Java runtimes
     Java(JavaNamespace),
+}
+
+#[derive(Debug, Args)]
+pub struct BackupNamespace {
+    #[command(subcommand)]
+    pub command: BackupCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BackupCommand {
+    /// Take a snapshot of the instance
+    Create(BackupCreateArgs),
+
+    /// List snapshots and the server's own backups
+    List,
+
+    /// Restore a backup, snapshotting the current state first
+    Restore(BackupRestoreArgs),
+
+    /// Delete old snapshots
+    Prune(BackupPruneArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct BackupCreateArgs {
+    /// Snapshot even though the server is running
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct BackupRestoreArgs {
+    /// The id from `hy backup list`
+    #[arg(value_name = "ID")]
+    pub id: String,
+
+    /// Roll back everything the backup holds, not just the world
+    ///
+    /// Off by default: rolling back whitelist.json would lock out anyone added since, and
+    /// the same goes for bans and config.
+    #[arg(long, conflicts_with = "include")]
+    pub all: bool,
+
+    /// Roll back only these entries, e.g. `universe,config.json`
+    #[arg(long, value_name = "NAMES", value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Restore even though the server is running
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct BackupPruneArgs {
+    /// How many snapshots to keep; defaults to `[backup] keep`
+    #[arg(long, value_name = "N")]
+    pub keep: Option<usize>,
 }
 
 #[derive(Debug, Args)]

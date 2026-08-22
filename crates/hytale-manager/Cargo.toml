@@ -12,6 +12,7 @@ name = "hy"
 path = "src/main.rs"
 
 [dependencies]
+hy-backup = { workspace = true }
 hy-cli = { workspace = true }
 hy-dist = { workspace = true }
 hy-instance = { workspace = true }
@@ -22,6 +23,7 @@ anstream = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
+jiff = { workspace = true }
 owo-colors = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

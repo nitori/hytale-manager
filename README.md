@@ -3,8 +3,8 @@
 A CLI for managing Hytale dedicated servers — installation, backups, and running the
 server. The binary is called `hy`.
 
-**Status:** early. `hy init`, `hy install`, `hy run`, `hy status`, and `hy java` work;
-backups and updates do not yet. See [PLAN.md](PLAN.md) for the roadmap.
+**Status:** early. `hy init`, `hy install`, `hy run`, `hy backup`, `hy status`, and
+`hy java` work; updates do not yet. See [PLAN.md](PLAN.md) for the roadmap.
 
 ## Build
 
@@ -22,6 +22,7 @@ cargo test --workspace
 | `hy init [DIR]` | Write `hytale.toml`, adopting an existing install if there is one |
 | `hy install [DIR]` | Download a server and authenticate it (`--version`, `--patchline`) |
 | `hy run [-- ARGS]` | Run the server; `ARGS` pass through to it |
+| `hy backup create\|list\|restore\|prune` | Snapshot and roll back server state |
 | `hy status` | Instance state, layout, version, Java, and backup settings |
 
 `hy` searches upwards for the instance, so these work from inside `Server/`.
@@ -36,6 +37,28 @@ the server jar, runs it in `--bootstrap` mode, and drives the console: it sends
 That means installing **needs an interactive terminal**. `hy run` will install a missing
 server for you, but only when it can actually show you a code — under systemd or in CI it
 fails and tells you to run `hy install` by hand first.
+
+### `hy backup`
+
+The server takes its own backups every `--backup-frequency` minutes, but they cover
+`universe/` only and it has **no restore command**. `hy backup` fills both gaps: it lists
+the server's archives alongside its own, and can restore either.
+
+Snapshots capture `universe/` plus `config.json`, `bans.json`, `permissions.json`, and
+`whitelist.json` — configurable via `[backup] include`. `mods/` is excluded by default:
+jars are re-obtainable, not state.
+
+**Restoring rolls back only the world by default.** Reinstating an old `whitelist.json`
+would lock out anyone added since, and bans and config are the same story. Use `--all`, or
+`--include universe,config.json`, to take more. A snapshot of the current state is always
+taken first.
+
+Because restoring forks the history, `snapshots/history.toml` records each one and `list`
+marks backups from before a restore as superseded — so "restore the newest" after a
+rollback can't silently drop you onto the abandoned branch.
+
+Backups of a running server are refused unless you pass `--force`, since a live world is
+being written as it's read.
 
 ### `hy run`
 

@@ -441,12 +441,63 @@ auth), `--auth-mode insecure`, `--bare`, `--singleplayer`, `--universe`, `--mods
 **Not verified:** completing device authorisation and the 3.3 GB payload extraction, which
 need a real Hytale account. Everything up to the code prompt runs against the live server.
 
-**⬜ Phase 5 — `hy-backup`.** Cold snapshot of `universe/` + config JSONs + `mods/` into a
-timestamped archive, with stop-then-restart-if-running. Restore with a pre-restore safety
-snapshot. `list`, `prune --keep N`. Deliverable: `hy backup *`.
+**✅ Phase 5 — `hy-backup`.** `hy backup create|list|restore|prune`. 38 tests.
+
+**Capture broadly, restore narrowly.** These are different questions and conflating them
+was the first design's mistake. `[backup] include` captures `universe/` plus
+`config.json`, `bans.json`, `permissions.json`, `whitelist.json`; `restore` rolls back only
+`universe/` by default. Rolling back `whitelist.json` would lock out someone added since,
+and bans and config are the same argument — worth *having* a copy of, wrong to reinstate.
+`--all` and `--include a,b` opt in.
+
+**An allowlist, not a denylist.** A denylist fails open, and the blind one written before
+seeing a real install would have swept the 106 MB `HytaleServer.aot.config`, the
+`telemetry/` spool, and `auth.enc` into every archive. `mods/` is excluded too: jars are
+re-obtainable artifacts, not state.
+
+**Both origins in one listing.** The server's own hot backups appear beside ours, tagged.
+Verified against a live 0.5.9 install: they are **ZIP of the whole `universe/` directory**
+(arbitrary files placed there are carried along), named `YYYY-MM-DD_HH-MM-SS.zip` in
+`Server/backups/`, rotated into `backups/archive/`. World only — no config, bans,
+whitelist, or mods, which is exactly the gap `hy backup` fills. Since the format is known,
+restoring one is supported rather than deferred; it unpacks into `Server/universe/`.
+
+Our ids are UTC and the server's stamps are local, so the two cannot be ordered by name —
+everything is normalised to an instant, and `list` shows one local-time column.
+
+**Lineage journal.** `snapshots/history.toml` records each restore. A backup's lineage is
+whichever was in effect when it was taken, so the server's hot backups get classified too
+without it cooperating. `list` marks superseded entries, so the panic-restore-after-a-
+rollback case — landing on the abandoned branch and losing everything since — is visible
+rather than silent.
+
+**The running-server guard needs two signals.** `hy run`'s lock is authoritative but fails
+*open* where locks do not work: `var/` on WSL2 is v9fs, where `flock` is unreliable, and a
+server started from Windows holds a lock no Linux process can see. Observed live — the
+guard passed and a snapshot of a running world was taken. Recent writes under `Server/` now
+back it up; portable, weaker, and honest about being a heuristic.
 
 **⬜ Phase 6 — polish.** `hy self update`, shell completions from `hy-cli`, README, systemd
 unit generation if wanted.
+
+### Optional, not committed
+
+- **`hy plugin`** — manage installed and enabled plugins, enabling by symlink into `mods/`
+  so a disabled plugin stays on disk. Downloads would stay manual: CurseForge has a Core
+  API, but it is key-gated, and whether Hytale plugins are distributed there at all is
+  unknown. Worth designing only once there is a real plugin ecosystem to point at. Note
+  `mods/` is excluded from backups by default, so a plugin manager and the backup defaults
+  need to agree about what counts as state.
+- **A lineage marker inside `universe/`.** Proven viable: a file placed there is carried
+  into the server's hot backups verbatim. It would make an archive state its own lineage
+  even after being copied off the machine, which the journal cannot. Not needed while
+  backups stay with their instance.
+- **`hy run` never enables AOT.** `[java] aot` looks for `Server/HytaleServer.aot`, which
+  does not exist on a real install — the server ships `HytaleServer.aot.config` (106 MB),
+  and the shipped `start.sh` passes no AOT flag either. The manual's
+  `java -XX:AOTCache=HytaleServer.aot` presumably expects a cache to be *created* first
+  from that config. Until that is worked out the flag is silently never passed, so the
+  boot-time win the manual advertises is not being had.
 
 ---
 
@@ -491,8 +542,8 @@ Requires a real server payload:
   where advisory locking may be a no-op. `download.rs` therefore also tolerates losing a
   rename race, and the checksum is the final backstop. Worth a warning if `HY_HOME` is
   detected on such a filesystem.
-- **Full `--help` flag list uncaptured.** The manual truncates `java -jar HytaleServer.jar
-  --help` at `--backup-frequency`. Capture the real list during phase 4 and reconcile.
+- **Full `--help` flag list** captured in phase 4 against the real jar; see the corrections
+  there.
 - **Multi-instance registry** deferred. cwd/`--dir` addressing only; a global named registry
   can be layered on later without breaking the model.
 - **systemd unit generation** deferred to phase 6.

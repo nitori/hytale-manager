@@ -10,7 +10,6 @@
 //! ├── updater/staging/
 //! └── Server/                  the server's working directory
 //!     ├── HytaleServer.jar
-//!     ├── HytaleServer.aot
 //!     └── universe/ logs/ mods/ backups/ .cache/
 //! ```
 //!
@@ -42,11 +41,6 @@ impl Layout {
 
     pub fn jar(&self) -> PathBuf {
         self.server_dir().join("HytaleServer.jar")
-    }
-
-    /// Version-stamped: a cache built for Java 25 will not load on 26.
-    pub fn aot_cache(&self) -> PathBuf {
-        self.server_dir().join("HytaleServer.aot")
     }
 
     pub fn assets(&self) -> PathBuf {

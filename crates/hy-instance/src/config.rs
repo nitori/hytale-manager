@@ -41,7 +41,7 @@ pub struct ServerSection {
     pub hot_backup: HotBackup,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JavaSection {
     /// A requirement, e.g. `>=25`. The resolved pin lives in `.java-version`.
@@ -50,9 +50,6 @@ pub struct JavaSection {
 
     #[serde(default)]
     pub options: Vec<String>,
-
-    #[serde(default = "yes")]
-    pub aot: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -135,16 +132,6 @@ fn default_include() -> Vec<String> {
     ]
     .map(str::to_string)
     .to_vec()
-}
-
-impl Default for JavaSection {
-    fn default() -> Self {
-        Self {
-            version: None,
-            options: Vec::new(),
-            aot: true,
-        }
-    }
 }
 
 impl Default for BackupSection {
@@ -256,7 +243,6 @@ pub fn template(java_requirement: &str) -> String {
 [java]
 version = \"{java_requirement}\"           # requirement; the resolved pin goes in .java-version
 options = []               # JVM arguments, e.g. [\"-Xms2G\", \"-Xmx4G\"]
-# aot   = true             # use HytaleServer.aot
 
 [backup]
 # keep    = 10
@@ -278,7 +264,6 @@ mod tests {
     fn defaults_apply_to_an_empty_file() {
         let config: Config = toml::from_str("").unwrap();
         assert_eq!(config.server.patchline, Patchline::Release);
-        assert!(config.java.aot);
         assert_eq!(config.backup.keep, 10);
         assert!(config.server.hot_backup.enabled);
         assert_eq!(config.server.hot_backup.frequency, 30);
@@ -296,7 +281,6 @@ mod tests {
             [java]
             version = ">=25"
             options = ["-Xms2G", "-Xmx4G"]
-            aot = false
 
             [backup]
             keep = 5
@@ -310,7 +294,6 @@ mod tests {
         assert_eq!(config.server.patchline, Patchline::PreRelease);
         assert_eq!(config.server.version.as_deref(), Some("0.6.0-pre.13"));
         assert_eq!(config.java.options, ["-Xms2G", "-Xmx4G"]);
-        assert!(!config.java.aot);
         assert_eq!(config.backup.keep, 5);
         assert_eq!(config.server.hot_backup.frequency, 15);
         // Untouched keys keep their defaults rather than resetting to empty.
@@ -329,7 +312,6 @@ mod tests {
         let config: Config = toml::from_str(&template(">=25")).unwrap();
         assert_eq!(config.java.version.as_deref(), Some(">=25"));
         // Commented-out keys still yield the documented defaults.
-        assert!(config.java.aot);
         assert_eq!(config.backup.keep, 10);
     }
 

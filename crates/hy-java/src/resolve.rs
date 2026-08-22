@@ -13,9 +13,8 @@
 //!
 //! An open requirement such as `>=25` resolves to the newest **LTS** that satisfies it, not
 //! the newest release overall. Java 26 is generally available, but the Hytale manual
-//! specifies 25, `HytaleServer.aot` is version-stamped and will not load on a different
-//! JVM, and non-LTS releases stop receiving patches after roughly six months. `latest`
-//! opts in deliberately.
+//! specifies 25, and non-LTS releases stop receiving patches after roughly six months.
+//! `latest` opts in deliberately.
 //!
 //! Note the asymmetry: the LTS preference governs what we *install*. An already-present
 //! Java 26 still satisfies `>=25` — we do not download a second JDK to avoid one that is

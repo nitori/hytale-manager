@@ -95,7 +95,7 @@ to install a JDK by hand. These commands exist for inspection and for pre-warmin
 `25` · `25.0.4` · `>=25` · `25+` · `lts` · `latest` · `temurin@25` · a path to a JDK
 
 An open request like `>=25` resolves to the newest **LTS**, not the newest release. Java 26
-is out, but the server manual specifies 25, `HytaleServer.aot` won't load on a different
+is out, but the server manual specifies 25, the server is untested on a different
 JVM, and non-LTS releases stop getting patches after ~6 months. Use `latest` to opt in.
 
 ### Global options

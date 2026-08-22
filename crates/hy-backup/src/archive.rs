@@ -113,7 +113,7 @@ pub fn read_manifest(archive: &Path) -> Result<Option<Manifest>> {
 /// The top-level names an archive covers, excluding the manifest.
 ///
 /// Restoring replaces exactly these, so state the archive does not carry — the jar, the
-/// AOT cache — survives untouched.
+/// AOT config — survives untouched.
 pub fn covered_entries(archive: &Path) -> Result<Vec<PathBuf>> {
     let mut tar = open(archive)?;
     let mut names = Vec::new();

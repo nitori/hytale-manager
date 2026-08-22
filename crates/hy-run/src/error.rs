@@ -11,12 +11,6 @@ pub enum Error {
     #[error("another `hy run` is already using {0}")]
     AlreadyRunning(PathBuf),
 
-    #[error(
-        "`{flag}` in `[java] options` conflicts with `[java] aot`; set `aot = false` to \
-         manage the cache yourself"
-    )]
-    AotConflict { flag: String },
-
     #[error("failed to apply the staged update")]
     Staging(#[source] std::io::Error),
 

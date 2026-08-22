@@ -17,7 +17,6 @@ use crate::shell::Shell;
 
 /// `--assets` is relative because the server resolves it against `Server/`.
 const ASSETS_ARG: &str = "../Assets.zip";
-const AOT_FLAG: &str = "-XX:AOTCache=";
 
 #[derive(Debug, Clone)]
 pub struct ServerCommand {
@@ -54,23 +53,7 @@ pub fn build(instance: &Instance, java: &Path, extra: &[String]) -> Result<Serve
     }
 
     let mut args: Vec<OsString> = Vec::new();
-
-    if let Some(flag) = config
-        .java
-        .options
-        .iter()
-        .find(|o| o.starts_with(AOT_FLAG) || o.as_str() == "-XX:+AOTClassLinking")
-        && config.java.aot
-    {
-        return Err(Error::AotConflict { flag: flag.clone() });
-    }
     args.extend(config.java.options.iter().map(OsString::from));
-
-    // The cache is version-stamped against the JVM that wrote it; passing a path that does
-    // not exist makes the JVM fail rather than fall back.
-    if config.java.aot && layout.aot_cache().is_file() {
-        args.push(OsString::from(format!("{AOT_FLAG}HytaleServer.aot")));
-    }
 
     args.push(OsString::from("-jar"));
     args.push(OsString::from("HytaleServer.jar"));
@@ -155,43 +138,13 @@ mod tests {
         assert_eq!(&args[..jar], ["-Xms2G", "-Xmx4G"]);
     }
 
+    /// JVM flags are passed through untouched, including ones `hy` has no opinion about.
     #[test]
-    fn aot_is_used_only_when_the_cache_exists() {
-        let (dir, instance) = instance_with("");
-        let args = strings(&build(&instance, Path::new("java"), &[]).unwrap());
-        assert!(!args.iter().any(|a| a.starts_with(AOT_FLAG)));
-
-        std::fs::write(dir.path().join("Server/HytaleServer.aot"), b"").unwrap();
-        let instance = Instance::at(dir.path()).unwrap();
-        let args = strings(&build(&instance, Path::new("java"), &[]).unwrap());
-        assert!(args.contains(&"-XX:AOTCache=HytaleServer.aot".to_string()));
-    }
-
-    #[test]
-    fn aot_can_be_disabled() {
-        let (dir, instance) = instance_with("[java]\naot = false\n");
-        std::fs::write(dir.path().join("Server/HytaleServer.aot"), b"").unwrap();
-        let instance = Instance::at(instance.root()).unwrap();
-        let args = strings(&build(&instance, Path::new("java"), &[]).unwrap());
-        assert!(!args.iter().any(|a| a.starts_with(AOT_FLAG)));
-        let _ = dir;
-    }
-
-    #[test]
-    fn a_hand_written_aot_flag_conflicts() {
-        let (_dir, instance) = instance_with("[java]\noptions = [\"-XX:AOTCache=other.aot\"]\n");
-        assert!(matches!(
-            build(&instance, Path::new("java"), &[]),
-            Err(Error::AotConflict { .. })
-        ));
-    }
-
-    #[test]
-    fn a_hand_written_aot_flag_is_allowed_when_aot_is_off() {
+    fn jvm_options_are_not_second_guessed() {
         let (_dir, instance) =
-            instance_with("[java]\naot = false\noptions = [\"-XX:AOTCache=other.aot\"]\n");
+            instance_with("[java]\noptions = [\"-XX:AOTCache=mine.aot\"]\n");
         let args = strings(&build(&instance, Path::new("java"), &[]).unwrap());
-        assert!(args.contains(&"-XX:AOTCache=other.aot".to_string()));
+        assert!(args.contains(&"-XX:AOTCache=mine.aot".to_string()));
     }
 
     #[test]

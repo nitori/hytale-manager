@@ -99,7 +99,7 @@ pub fn restore(
     Ok(restored)
 }
 
-/// Replace exactly the selected entries, so everything else — the jar, the AOT cache, and
+/// Replace exactly the selected entries, so everything else — the jar, the AOT config, and
 /// anything not being rolled back — survives untouched.
 fn restore_snapshot(
     layout: &Layout,

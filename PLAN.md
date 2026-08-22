@@ -30,7 +30,7 @@ game/
 ├── jvm.options                optional, one JVM arg per line, # comments
 └── Server/                    server runs with cwd HERE
     ├── HytaleServer.jar
-    ├── HytaleServer.aot       AOT cache; -XX:AOTCache= is a large boot-time win
+    ├── HytaleServer.aot.config  AOT training config, 106 MB; the cache itself is not shipped
     ├── auth.enc / auth.key    device-flow OAuth credentials
     ├── config.json
     └── (created at runtime)
@@ -174,8 +174,7 @@ tip (dev):        28
 An open requirement like `>=25` resolves to **25**, not 26. Rationale:
 
 - The manual specifies Java 25; 26 is untested against Hytale's build.
-- **`HytaleServer.aot` is version-stamped.** An AOT cache built for 25 will not load on a
-  26 JVM, silently forfeiting the boot-time win the manual ships it for.
+- The server is built and tested against 25; a different feature release is untried.
 - Non-LTS feature releases receive ~6 months of updates. An internet-exposed UDP server
   that auto-tracks feature releases will periodically sit on an unpatched JVM.
 
@@ -311,8 +310,8 @@ survive the switch. Afterwards it is ignored — and if a leftover copy disagree
 detects a launcher script beside `Assets.zip`. `hy` therefore leaves it alone (the
 server's own updater reinstalls it anyway) and simply does not use it.
 
-`-XX:AOTCache=` is governed by `[java] aot`; specifying it by hand in `options` is a
-conflict `hy` reports rather than merges.
+`[java] options` is passed through untouched — `hy` has no opinion about individual JVM
+flags.
 
 ### `hytale.toml` (per instance)
 
@@ -325,7 +324,6 @@ bind      = "0.0.0.0:5520"
 [java]
 version = ">=25"             # requirement, not a pin — resolves to newest LTS (25)
 options = ["-Xms2G", "-Xmx4G"]   # sole source of truth; passed straight to `java`
-aot     = true               # -XX:AOTCache=HytaleServer.aot
 
 [backup]
 keep = 10
@@ -358,7 +356,7 @@ and `-j`/`--java`. 23 tests, clippy clean.
 `hy init` and `hy status`. Pins now land in the instance root rather than the working
 directory. 28 tests.
 
-**✅ Phase 3 — `hy-run`.** JVM spawn with resolved Java + `[java] options` + AOT from
+**✅ Phase 3 — `hy-run`.** JVM spawn with resolved Java + `[java] options` from
 `Server/`; the exit-8 loop; selective staging application; graceful shutdown with a
 second-signal force; per-instance run lock; exit-code propagation. `hy run [-- args]`, and
 `hy status` now reports running/stopped. 30 tests, 10 of them driving the supervisor
@@ -492,12 +490,21 @@ unit generation if wanted.
   into the server's hot backups verbatim. It would make an archive state its own lineage
   even after being copied off the machine, which the journal cannot. Not needed while
   backups stay with their instance.
-- **`hy run` never enables AOT.** `[java] aot` looks for `Server/HytaleServer.aot`, which
-  does not exist on a real install — the server ships `HytaleServer.aot.config` (106 MB),
-  and the shipped `start.sh` passes no AOT flag either. The manual's
-  `java -XX:AOTCache=HytaleServer.aot` presumably expects a cache to be *created* first
-  from that config. Until that is worked out the flag is silently never passed, so the
-  boot-time win the manual advertises is not being had.
+- **AOT was removed, not deferred.** `[java] aot` looked for `Server/HytaleServer.aot`,
+  which does not exist on a real install: the server ships `HytaleServer.aot.config`
+  (106 MB), and the shipped `start.sh` passes no AOT flag either. The option was therefore
+  dead config that silently did nothing.
+
+  Measured on a live 0.5.9 boot of **12.5 s**: ~4.8 s to the end of the setup phase (class
+  loading, what AOT targets), ~6 s loading 100 asset stores and NPC assets, ~1.8 s world
+  and listeners. AOT could plausibly recover 1–2 s of the first slice.
+
+  Against that, the cache does not ship — it would have to be *created* from the config —
+  and it is stamped to both the exact JVM and the application classes. Since `hy` manages
+  Java, moving the pin invalidates it; so does every server update. Which means the one
+  moment a fast restart is most welcome, the exit-8 update loop, is exactly when the cache
+  is guaranteed stale. Not worth owning a regeneration-and-staleness problem for ~1.5 s on
+  a rare restart. Re-add it only with the create step handled properly.
 
 ---
 

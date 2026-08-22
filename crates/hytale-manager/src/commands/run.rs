@@ -119,8 +119,7 @@ impl RunReporter for Reporter {
         if attempt == 1 {
             self.printer.event("Starting the server".bold().to_string());
         }
-        // Reprinted on every restart: the AOT flag appears once the cache exists, so the
-        // command genuinely differs between cycles.
+        // Reprinted on every restart: a staged update can change what gets run.
         self.printer
             .detail(format!("in {}", self.shell.path(&command.working_dir)));
         self.printer.detail(command.display(self.shell));

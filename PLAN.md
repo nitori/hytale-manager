@@ -401,6 +401,17 @@ Correction: an earlier note here said no stop command existed and shutdown had t
 signal-based. It does exist — `shutdown`, undocumented in the manual, and neither `stop`
 nor `exit` is accepted.
 
+**This is the server's bug, not ours.** Launching `HytaleServer.jar` directly from mintty,
+with no `hy` involved, has the same broken Ctrl-C. So owning stdin is not a workaround for
+supervising — it repairs a defect the server has on its own, and `hy run` stops a server in
+that terminal more reliably than running it by hand does.
+
+Note this is the one place we deliberately diverge from `uv`, which inherits all three
+streams (`crates/uv/src/child.rs`) and on Windows merely swallows Ctrl-C so it does not
+exit before its child. That is right for uv: it launches arbitrary interactive programs, so
+it must not own stdin, and its children survive a stray `0x03`. We have exactly one child,
+we know what it is, and it does not.
+
 The input side is a seam: `Console::new(forward_terminal)` reads the terminal today, and a
 UI will call `Console::send` instead. The writer rebinds on each exit-8 restart while the
 reader stays put — there is one terminal, and two readers would race for keystrokes.

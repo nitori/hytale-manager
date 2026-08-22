@@ -56,13 +56,9 @@ fn stub_java(dir: &Path, codes: &[i32]) -> PathBuf {
     path
 }
 
+/// The test harness's stdin is not the server's to consume, so `new` leaves it alone.
 fn options(java: PathBuf) -> RunOptions {
-    RunOptions {
-        java,
-        server_args: Vec::new(),
-        // The test harness's stdin is not the server's to consume.
-        forward_stdin: false,
-    }
+    RunOptions::new(java)
 }
 
 fn stage_update(root: &Path, jar: &[u8]) {

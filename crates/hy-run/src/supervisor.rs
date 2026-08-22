@@ -13,6 +13,7 @@ use crate::error::Result;
 use crate::lock::RunLock;
 use crate::signal::{self, Shutdown};
 use crate::console::{self, Console};
+use crate::output::{Output, OutputSink, StopHandle};
 use crate::{command, staging};
 
 /// The server asks to be restarted by exiting with this code.
@@ -26,8 +27,27 @@ pub struct RunOptions {
     pub java: PathBuf,
     pub server_args: Vec<String>,
     /// Forward this process's stdin to the server. Off when nothing is typing at it — a
-    /// systemd unit — and later when a UI supplies input instead.
+    /// systemd unit — and when a UI supplies input through [`Console::send`] instead.
     pub forward_stdin: bool,
+    pub output: Output,
+    /// Lets a UI request the stop that a signal would otherwise deliver.
+    pub stop: StopHandle,
+    /// Supply one to share it with a UI, which needs to send commands to whichever server
+    /// is currently running. Left unset, the supervisor makes its own.
+    pub console: Option<Console>,
+}
+
+impl RunOptions {
+    pub fn new(java: PathBuf) -> Self {
+        Self {
+            java,
+            server_args: Vec::new(),
+            forward_stdin: false,
+            output: Output::Inherit,
+            stop: StopHandle::new(),
+            console: None,
+        }
+    }
 }
 
 /// How long the server gets to act on `shutdown` before the signal is tried as well.
@@ -66,7 +86,10 @@ pub async fn run(
     let _lock = RunLock::acquire(layout.root())?;
 
     let mut shutdown = Shutdown::new()?;
-    let console = Console::new(options.forward_stdin);
+    let console = options
+        .console
+        .clone()
+        .unwrap_or_else(|| Console::new(options.forward_stdin));
     let mut restarts = 0;
 
     loop {
@@ -79,18 +102,28 @@ pub async fn run(
         reporter.starting(restarts + 1, &spec);
 
         let started = Instant::now();
-        let mut child = Command::new(&spec.program)
+        let mut command = Command::new(&spec.program);
+        command
             .args(&spec.args)
             .current_dir(&spec.working_dir)
             .stdin(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()?;
+            .kill_on_drop(true);
+        if options.output.is_captured() {
+            command
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+        }
+        let mut child = command.spawn()?;
 
         if let Some(stdin) = child.stdin.take() {
             console.attach(stdin).await;
         }
+        if let Output::To(sink) = &options.output {
+            capture(&mut child, sink.clone());
+        }
 
-        let (status, requested) = wait(&mut child, &mut shutdown, &console, reporter).await?;
+        let (status, requested) =
+            wait(&mut child, &mut shutdown, &options.stop, &console, reporter).await?;
         console.detach().await;
         let elapsed = started.elapsed();
         let code = signal::exit_code(status);
@@ -115,17 +148,43 @@ pub async fn run(
     }
 }
 
-/// Waits for the child, or for a shutdown signal. The bool reports whether a stop was
-/// requested.
+/// Both streams feed one sink, in the order the server produced them.
+fn capture(child: &mut tokio::process::Child, sink: std::sync::Arc<dyn OutputSink>) {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let mut readers: Vec<std::pin::Pin<Box<dyn tokio::io::AsyncRead + Send>>> = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        readers.push(Box::pin(stdout));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        readers.push(Box::pin(stderr));
+    }
+
+    for reader in readers {
+        let sink = sink.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(reader).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                sink.line(line);
+            }
+        });
+    }
+}
+
+/// Waits for the child, a shutdown signal, or a stop asked for by a UI. The bool reports
+/// whether the stop was requested rather than the server ending on its own.
 async fn wait(
     child: &mut tokio::process::Child,
     shutdown: &mut Shutdown,
+    stop: &StopHandle,
     console: &Console,
     reporter: &dyn RunReporter,
 ) -> Result<(std::process::ExitStatus, bool)> {
     tokio::select! {
         status = child.wait() => Ok((status?, false)),
-        _ = shutdown.recv() => {
+        // In raw mode a UI gets Ctrl-C as a key event, never as a signal, so both sources
+        // have to lead to the same place.
+        _ = async { tokio::select! { _ = shutdown.recv() => {}, _ = stop.requested() => {} } } => {
             reporter.stopping();
 
             // The console command is the portable route and the only one that works where
@@ -143,7 +202,10 @@ async fn wait(
             // written. A second signal is the operator insisting.
             tokio::select! {
                 status = child.wait() => Ok((status?, true)),
-                _ = shutdown.recv() => {
+                _ = async { tokio::select! {
+                    _ = shutdown.recv() => {},
+                    _ = stop.requested() => {},
+                } } => {
                     reporter.killing();
                     child.kill().await?;
                     Ok((child.wait().await?, true))

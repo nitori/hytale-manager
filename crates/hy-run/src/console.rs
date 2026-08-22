@@ -26,9 +26,15 @@ pub const SHUTDOWN_COMMAND: &str = "shutdown";
 const CTRL_C: u8 = 0x03;
 
 /// A handle to whichever server process is currently running.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Console {
     target: Arc<Mutex<Option<ChildStdin>>>,
+}
+
+impl std::fmt::Debug for Console {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Console")
+    }
 }
 
 impl Console {

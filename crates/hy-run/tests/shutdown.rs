@@ -57,11 +57,7 @@ async fn a_requested_stop_waits_for_the_server_then_reports_success() {
     .unwrap();
     std::fs::set_permissions(&java, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-    let options = RunOptions {
-        java,
-        server_args: Vec::new(),
-        forward_stdin: false,
-    };
+    let options = RunOptions::new(java);
     let supervised = tokio::spawn(async move {
         hy_run::run(&instance, &options, &NoReporter).await
     });

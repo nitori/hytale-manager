@@ -9,6 +9,7 @@ use hy_run::{Outcome, RunOptions, RunReporter};
 use owo_colors::OwoColorize;
 
 use crate::commands::{Context, install, java};
+use crate::tui;
 use crate::printer::Printer;
 
 pub async fn run(args: RunArgs, ctx: &Context) -> Result<ExitCode> {
@@ -31,19 +32,25 @@ pub async fn run(args: RunArgs, ctx: &Context) -> Result<ExitCode> {
 
     let resolved = java::resolve_for(&args.selector, ctx).await?;
 
-    let options = RunOptions {
-        java: resolved.executable,
-        server_args: args.server_args,
-        // Nothing is typing at a systemd unit or a CI job, and consuming a redirected
-        // stdin there would steal input the operator meant for something else.
-        forward_stdin: std::io::stdin().is_terminal(),
-    };
-    let reporter = Reporter {
-        printer: ctx.printer,
-        shell: hy_run::Shell::detect(),
-    };
+    let shell = hy_run::Shell::detect();
+    let tui = !args.no_tui && (args.tui || tui::is_available());
 
-    let outcome = hy_run::run(instance, &options, &reporter).await?;
+    let mut options = RunOptions::new(resolved.executable);
+    options.server_args = args.server_args;
+    // The UI owns input when it is up. Otherwise forward the terminal — but not a
+    // redirected stdin, which under systemd or CI is input meant for something else.
+    options.forward_stdin = !tui && std::io::stdin().is_terminal();
+
+    let outcome = if tui {
+        run_with_ui(instance, options, shell, ctx).await?
+    } else {
+        let reporter = Reporter {
+            printer: Some(ctx.printer),
+            shared: None,
+            shell,
+        };
+        hy_run::run(instance, &options, &reporter).await?
+    };
     report(ctx, instance, &outcome);
 
     // A stop the operator asked for is a success, whatever the server exited with. Reporting
@@ -53,6 +60,39 @@ pub async fn run(args: RunArgs, ctx: &Context) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
     Ok(ExitCode::from(u8::try_from(outcome.code).unwrap_or(1)))
+}
+
+/// Drive the supervisor underneath the console UI.
+///
+/// The UI owns the terminal, so nothing may print to it directly while this runs — the
+/// reporter routes `hy`'s own messages into the output pane instead.
+async fn run_with_ui(
+    instance: &hy_instance::Instance,
+    mut options: RunOptions,
+    shell: hy_run::Shell,
+    ctx: &Context,
+) -> Result<Outcome> {
+    let shared = tui::Shared::default();
+    tui::install(&shared);
+
+    options.output = shared.as_output();
+    let stop = options.stop.clone();
+
+    // Input goes through the same console the supervisor uses, so a typed `shutdown` and a
+    // Ctrl-C-triggered one take exactly the same path.
+    let console = hy_run::Console::new(false);
+    options.console = Some(console.clone());
+
+    let reporter = Reporter {
+        printer: None,
+        shared: Some(shared.clone()),
+        shell,
+    };
+
+    let supervised = hy_run::run(instance, &options, &reporter);
+    let outcome = tui::run(shared, console, stop, supervised).await?;
+    let _ = ctx;
+    Ok(outcome?)
 }
 
 /// Install a missing server before running it, the way `uv run` provisions what it needs.
@@ -113,41 +153,70 @@ fn report(ctx: &Context, instance: &hy_instance::Instance, outcome: &Outcome) {
     }
 }
 
+/// Routes `hy`'s own progress messages to whichever surface is in use.
+///
+/// While the UI owns the terminal, printing to it directly would corrupt the frame, so the
+/// messages become lines in its output pane instead.
 struct Reporter {
-    printer: Printer,
+    printer: Option<Printer>,
+    shared: Option<tui::Shared>,
     shell: hy_run::Shell,
+}
+
+impl Reporter {
+    fn say(&self, message: impl Into<String>) {
+        let message = message.into();
+        if let Some(shared) = &self.shared {
+            shared.note(message);
+        } else if let Some(printer) = &self.printer {
+            printer.event(message);
+        }
+    }
+
+    fn detail(&self, message: impl Into<String>) {
+        let message = message.into();
+        if let Some(shared) = &self.shared {
+            shared.note(format!("  {message}"));
+        } else if let Some(printer) = &self.printer {
+            printer.detail(message);
+        }
+    }
 }
 
 impl RunReporter for Reporter {
     fn starting(&self, attempt: u32, command: &hy_run::ServerCommand) {
         if attempt == 1 {
-            self.printer.event("Starting the server".bold().to_string());
+            self.say("Starting the server".bold().to_string());
         }
         // Reprinted on every restart: a staged update can change what gets run.
-        self.printer
-            .detail(format!("in {}", self.shell.path(&command.working_dir)));
-        self.printer.detail(command.display(self.shell));
+        self.detail(format!("in {}", self.shell.path(&command.working_dir)));
+        self.detail(command.display(self.shell));
         if attempt == 1 {
-            self.printer.detail("press Ctrl-C to stop");
+            self.detail("press Ctrl-C to stop");
         }
     }
 
     fn applied_update(&self) {
-        self.printer.event("Applied the staged update".to_string());
+        self.say("Applied the staged update");
     }
 
     fn restarting(&self) {
-        self.printer
-            .event("Restarting to finish the update".to_string());
+        self.say("Restarting to finish the update");
     }
 
     fn stopping(&self) {
-        self.printer
-            .event("Stopping — letting the server save first".to_string());
-        self.printer.detail("press Ctrl-C again to force");
+        // The UI announces its own stop, so saying it twice there would be noise.
+        if self.shared.is_none() {
+            self.say("Stopping — letting the server save first");
+            self.detail("press Ctrl-C again to force");
+        }
     }
 
     fn killing(&self) {
-        self.printer.warn("killing the server; saves may be lost");
+        if let Some(printer) = &self.printer {
+            printer.warn("killing the server; saves may be lost");
+        } else {
+            self.say("killing the server; saves may be lost");
+        }
     }
 }

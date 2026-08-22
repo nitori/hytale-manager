@@ -416,6 +416,24 @@ The input side is a seam: `Console::new(forward_terminal)` reads the terminal to
 UI will call `Console::send` instead. The writer rebinds on each exit-8 restart while the
 reader stays put — there is one terminal, and two readers would race for keystrokes.
 
+**Console UI.** `ratatui` + `crossterm`, drawn only when stdin *and* stdout are terminals
+and the terminal is not known to break it; `--no-tui` opts out, `--tui` forces it and a redirect or systemd unit falls back to plain passthrough, so
+journald never sees escape sequences. Server output is captured into a scrolling pane
+(`ansi-to-tui` keeps its colours), `hy`'s own messages are tagged and interleaved there,
+and an input line below carries the prompt, editing, and history. Ctrl-C arrives as a key
+event in raw mode, so a `StopHandle` gives the UI the same shutdown path the signal takes.
+
+**mintty is excluded.** Resizing the window corrupts the alternate screen there — ConPTY
+reflows and replays content underneath us, which cannot be corrected from this side.
+Windows Terminal is fine, including when hosting Git Bash, so the test is `WT_SESSION`
+present → allow, else `TERM_PROGRAM=mintty` or `MSYSTEM` set → fall back. The cost is only
+the panes: `hy` still owns stdin in plain mode, so the Ctrl-C fix that mintty needed most
+is untouched.
+
+Piping the server's stdout drops its jline to `dumb-color`, which costs nothing now that
+the prompt and line editing are ours. Behaviour lives in `tui::state` with no terminal
+involved, so scrollback trimming, history, and the pinned-to-tail rule are unit-tested.
+
 The terminal is read on a **plain OS thread, never `tokio::io::stdin`**. That reads on the
 blocking pool, and dropping the runtime waits for blocking tasks — so a read parked on a
 silent terminal kept `hy` alive after the server had already exited, until a key was
@@ -515,16 +533,7 @@ unit generation if wanted.
 
 ### Optional, not committed
 
-- **A console UI.** `ratatui` + `crossterm`, with `ansi-to-tui` to keep the server's colours
-  and `tui-textarea` for input: a scrolling output pane above, an input line below, so
-  typing is not interleaved with log output. The stdin ownership above is already the seam
-  it plugs into — pass `forward_terminal: false` and drive `Console::send` from the UI.
-
-  Three constraints it has to respect. Output must fall back to plain passthrough when
-  stdout is not a terminal, or a systemd unit fills journald with escape sequences. It has
-  to survive the exit-8 restart rather than tearing down. And piping the server's stdout
-  drops its console to `dumb-color` — which costs nothing once the UI supplies the prompt
-  and line editing itself, but does mean the UI must be good enough to replace jline.
+- **`hy plugin`** (below) is the remaining optional item; the console UI is now built.
 
 - **`hy plugin`** — manage installed and enabled plugins, enabling by symlink into `mods/`
   so a disabled plugin stays on disk. Downloads would stay manual: CurseForge has a Core

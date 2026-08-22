@@ -157,6 +157,14 @@ pub struct RunArgs {
     #[command(flatten)]
     pub selector: JavaSelector,
 
+    /// Use the plain scrolling output instead of the console UI
+    #[arg(long, conflicts_with = "tui")]
+    pub no_tui: bool,
+
+    /// Force the console UI in a terminal where it is disabled by default
+    #[arg(long)]
+    pub tui: bool,
+
     /// Fail instead of installing a missing server
     #[arg(long)]
     pub no_install: bool,

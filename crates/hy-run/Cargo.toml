@@ -18,5 +18,6 @@ tracing = { workspace = true }
 libc = { workspace = true }
 
 [dev-dependencies]
+crossterm = { workspace = true }
 libc = { workspace = true }
 tempfile = { workspace = true }

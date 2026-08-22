@@ -76,6 +76,16 @@ protocol, with `[java] options` instead of `jvm.options`. It runs in the **foreg
 propagates the server's exit code — use tmux/screen or a systemd unit to keep it alive.
 There is no `hy start`/`stop`, and no control socket.
 
+In a terminal it opens a **console UI**: server output scrolls above, your commands go in a
+box below, so typing isn't interleaved with log lines. Up/Down recalls history, PageUp
+scrolls back (Esc follows the tail again), Ctrl-C stops the server. `--no-tui` gives the
+plain scrolling output instead, and a redirect or systemd unit falls back to it
+automatically.
+
+**Not in mintty** (Git Bash's own window) — resizing corrupts the display there, so `hy`
+uses plain output and you lose nothing but the panes. Git Bash inside Windows Terminal is
+fine. `--tui` forces it if you want to try anyway.
+
 Ctrl-C (or `SIGTERM`) asks the server to stop and waits for it to save; a second one kills
 it. A stop you asked for exits 0 even though the server reports 130, so systemd does not
 read it as a failure. One `hy run` per instance is enforced by a lock file, since two

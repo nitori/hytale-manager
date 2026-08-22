@@ -1,6 +1,7 @@
 mod commands;
 mod logging;
 mod printer;
+mod tui;
 mod progress;
 
 use std::io::IsTerminal;

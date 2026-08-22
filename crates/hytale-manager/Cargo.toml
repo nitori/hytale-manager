@@ -19,6 +19,9 @@ hy-instance = { workspace = true }
 hy-java = { workspace = true }
 hy-run = { workspace = true }
 
+ansi-to-tui = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
 anstream = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }

@@ -3,10 +3,11 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
-repository = "https://github.com/sani/hytale-manager"
+repository = "https://github.com/nitori/hytale-manager"
 
 [workspace.dependencies]
 hy-backup = { path = "crates/hy-backup" }
@@ -30,14 +31,13 @@ indicatif = "0.18"
 jiff = { version = "0.2", features = ["serde"] }
 libc = "0.2"
 owo-colors = { version = "4", features = ["supports-colors"] }
-# `rustls` + `webpki-roots` rather than native-tls: no system OpenSSL and no dependency on
-# the host cert store, which keeps cross-compilation simple. reqwest 0.13 split what 0.12
-# called `rustls-tls` into these two features.
 quick-xml = "0.41"
 ratatui = "0.30"
+# `rustls` rather than native-tls: nothing to link against, so the static musl build needs
+# no system OpenSSL. Roots come from the host trust store, which is what makes `hy` work
+# behind a MITM proxy and what makes a bare container need `ca-certificates`.
 reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
-  "webpki-roots",
   "stream",
   "json",
   "charset",

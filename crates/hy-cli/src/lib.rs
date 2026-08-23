@@ -85,6 +85,29 @@ pub enum Command {
 
     /// Print a shell completion script
     Completions(CompletionsArgs),
+
+    /// Manage the `hy` binary itself
+    #[command(name = "self")]
+    Self_(SelfNamespace),
+}
+
+#[derive(Debug, Args)]
+pub struct SelfNamespace {
+    #[command(subcommand)]
+    pub command: SelfCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SelfCommand {
+    /// Replace this binary with the newest release
+    Update(SelfUpdateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SelfUpdateArgs {
+    /// Report whether a newer release exists without installing it
+    #[arg(long)]
+    pub check: bool,
 }
 
 #[derive(Debug, Args)]

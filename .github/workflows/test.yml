@@ -1,0 +1,32 @@
+name: test
+
+# Runs on its own for pull requests, and is called by release.yml so a tag cannot publish
+# something that was never tested.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # The `cfg(windows)` branches are written on Linux, so without this they are compiled
+      # for the first time by the release build. `aws-lc-sys` compiles C for the target even
+      # under clippy, which is why the cross toolchain is needed to only *check*.
+      - name: Cross-check the Windows target
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+          rustup target add x86_64-pc-windows-gnu
+          cargo clippy --workspace --all-targets --locked \
+            --target x86_64-pc-windows-gnu -- -D warnings

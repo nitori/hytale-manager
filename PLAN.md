@@ -260,7 +260,7 @@ hy status                         instance version, Java, running state, port
 hy update check|download|apply|patchline
 hy backup create|list|restore <id>|prune --keep N
 hy java install|list|find|pin <version>|uninstall
-hy version | hy self update
+hy self update [--check]           replace this binary with the newest release
 ```
 
 Global flags: `-q/-v`, `--color`, `--offline`, `--dir <instance>`, `--no-java-download`.
@@ -556,7 +556,36 @@ first. Authenticating needs a device code typed into a browser, the Java store a
 are per-user, and a unit running as `hytale` will not inherit yours. `hy systemd` warns when
 the account differs from the current one.
 
-`hy self update` is deferred, not dropped — there is nowhere to fetch a release from yet.
+**✅ Phase 7 — releases and `hy self update`.** Tag-triggered workflow, `install.sh` into
+`~/.local/bin`, and in-place self-replacement. 6 tests.
+
+**One Linux artifact, static musl.** 12 MB, no runtime dependency but `ca-certificates`.
+Nearly free, because a glibc build already links only `libc`, `libm`, and `libgcc_s`. CI
+needs `musl-tools`: `aws-lc-sys` compiles C and wants a musl-targeting compiler.
+
+**Not uv's gnu-primary-with-musl-fallback.** That works only because uv builds in an
+ancient-glibc container pinning a 2.17 floor, then probes `ldd --version` in the installer.
+A gnu build from a stock `ubuntu-latest` runner requires glibc 2.39 and fails on Debian 12,
+Ubuntu 22.04, and RHEL 9. uv pays for that apparatus because musl's allocator shows in its
+benchmarks; `hy` waits on sockets and sha256.
+
+**The swap is `rename`, not a write.** A running executable cannot be written to
+(`ETXTBSY`), but renaming over it is fine — the old inode stays alive, so a `hy run`
+supervising a server is untouched. The staged file goes *beside* the target, since `rename`
+is only atomic within one filesystem, and is opened before the download so an unwritable
+install fails in a second rather than after 12 MB.
+
+Version discovery reads `VERSION` and `SHA256SUMS` through the `releases/latest/download/…`
+redirect rather than the API: no rate limit, and `sha256sum -c` consumes the same file `hy`
+does. `HY_UPDATE_BASE_URL` retargets both, which is how the swap is tested without a
+release. Windows gets an artifact but no installer and no self-update — replacing a running
+`.exe` has no atomic step, and `asset_for` returns nothing for the target.
+
+**Correction: `webpki-roots` never did anything.** reqwest 0.13 defines
+`rustls = [..., "dep:rustls-platform-verifier", ...]`, and never references the
+`webpki-roots` crate — the built binary contains no CA names and does reference
+`/etc/ssl/certs`. The feature is dropped; the host trust store is now deliberate, since it
+is what makes `hy` work behind a MITM proxy.
 
 ### Optional, not committed
 
@@ -635,7 +664,13 @@ Requires a real server payload:
   there.
 - **Multi-instance registry** deferred. cwd/`--dir` addressing only; a global named registry
   can be layered on later without breaking the model.
-- **`hy self update`** still deferred: no release channel to fetch from.
+- **Release trust is transport-only.** The checksum lives beside the binary it describes, so
+  it catches truncation, not a compromised pipeline. GitHub build attestations
+  (`actions/attest-build-provenance`) would fix that with no signing key to custody — worth
+  adding before anyone but the author installs this.
+- **`hy self update` covers `x86_64` Linux only.** aarch64 is one `ubuntu-24.04-arm` matrix
+  row whenever an ARM host wants it; asset names already carry the full triple, so it is
+  additive. A `--version` flag to pin or downgrade is the other obvious gap.
 - **Protocol version tolerance:** currently client and server must match exactly, so a
   server must update immediately on release. The manual promises ±2 tolerance later —
   until then `hy update` should treat "update available" as urgent, not optional.

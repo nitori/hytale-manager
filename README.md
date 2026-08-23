@@ -13,8 +13,26 @@ A CLI for managing Hytale dedicated servers — installation, backups, and runni
 server. The binary is called `hy`.
 
 **Status:** early. `hy init`, `hy install`, `hy run`, `hy backup`, `hy status`, `hy java`,
-`hy systemd`, and `hy completions` work; updates do not yet. See [PLAN.md](PLAN.md) for the
-roadmap.
+`hy systemd`, `hy completions`, and `hy self update` work; server updates do not yet. See
+[PLAN.md](PLAN.md) for the roadmap.
+
+## Install
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/nitori/hytale-manager/master/install.sh | sh
+```
+
+Installs a single static binary into `~/.local/bin` — no runtime dependencies beyond the
+system's `ca-certificates`. Debian and Ubuntu put `~/.local/bin` on `PATH` from
+`~/.profile`, but only when it already exists at login, so a first install may need a
+re-login.
+
+`HY_INSTALL_DIR=/usr/local/bin` installs system-wide instead. Windows binaries are on the
+[releases page](https://github.com/nitori/hytale-manager/releases/latest); there is no
+Windows installer.
+
+Later, `hy self update` replaces the binary in place — including while `hy run` is
+supervising a server, which keeps running on the old copy until it restarts.
 
 ## Build
 
@@ -36,6 +54,7 @@ cargo test --workspace
 | `hy status` | Instance state, layout, version, Java, and backup settings |
 | `hy systemd` | Write a systemd unit for this instance |
 | `hy completions <SHELL>` | Print a completion script |
+| `hy self update [--check]` | Replace this binary with the newest release |
 
 `hy` searches upwards for the instance, so these work from inside `Server/`.
 
@@ -168,7 +187,7 @@ JVM, and non-LTS releases stop getting patches after ~6 months. Use `latest` to 
 | `--color <auto\|always\|never>` | Color output |
 
 Environment: `HY_HOME`, `HY_JAVA`, `HY_JAVA_DOWNLOADS` (`automatic`/`manual`/`never`),
-`HY_DIR`, `HY_OFFLINE`, `HY_LOG`.
+`HY_DIR`, `HY_OFFLINE`, `HY_LOG`, `HY_INSTALL_DIR`, `HY_UPDATE_BASE_URL`.
 
 ## How Java is chosen
 

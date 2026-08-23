@@ -4,6 +4,7 @@ pub mod init;
 pub mod install;
 pub mod java;
 pub mod run;
+pub mod self_update;
 pub mod status;
 pub mod systemd;
 

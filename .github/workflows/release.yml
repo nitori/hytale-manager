@@ -1,0 +1,108 @@
+name: release
+
+on:
+  push:
+    tags:
+      # Two patterns because the filter syntax has no alternation: a release, and a
+      # prerelease like `v0.2.0-rc1` or `v0.2.0-dev.3`. `check-tag` enforces that
+      # `Cargo.toml` carries the same string, suffix included.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Its own job so a tag that disagrees with the manifest fails in seconds, rather than
+  # after two builds: `hy self update` would compare a published VERSION against binaries
+  # reporting something else, and every client would update in a loop.
+  check-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          manifest=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "tag $tag does not match Cargo.toml version $manifest" >&2
+            exit 1
+          fi
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: [check-tag, test]
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            asset: hy-x86_64-unknown-linux-musl
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            asset: hy-x86_64-pc-windows-msvc.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # aws-lc-sys, which rustls pulls in, compiles C; the musl target needs a musl-targeting
+      # compiler for it. musl-tools ships the `x86_64-linux-musl-gcc` name cc-rs looks for.
+      - name: Install musl toolchain
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - run: rustup target add ${{ matrix.target }}
+
+      # +crt-static on MSVC so the binary does not need the VC redistributable; the musl
+      # target is static already.
+      - name: Build
+        run: cargo build --release --locked -p hytale-manager --target ${{ matrix.target }}
+        env:
+          RUSTFLAGS: ${{ matrix.os == 'windows-latest' && '-C target-feature=+crt-static' || '' }}
+
+      - name: Stage
+        shell: bash
+        run: |
+          mkdir dist
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp "target/${{ matrix.target }}/release/hy.exe" "dist/${{ matrix.asset }}"
+          else
+            cp "target/${{ matrix.target }}/release/hy" "dist/${{ matrix.asset }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write release metadata
+        run: |
+          cd dist
+          sha256sum hy-* > SHA256SUMS
+          echo "${GITHUB_REF_NAME#v}" > VERSION
+          cat SHA256SUMS
+
+      # A prerelease is excluded from the `releases/latest/download/…` redirect that both
+      # `install.sh` and `hy self update` read, so a `-rc`/`-dev` tag must be marked as one
+      # or every client would update onto it.
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

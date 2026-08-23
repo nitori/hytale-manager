@@ -8,7 +8,7 @@ use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use clap::Parser;
-use hy_cli::{BackupCommand, Cli, ColorChoice, Command, JavaCommand};
+use hy_cli::{BackupCommand, Cli, ColorChoice, Command, JavaCommand, SelfCommand};
 use hy_java::{DownloadPolicy, ResolveOptions};
 use owo_colors::OwoColorize;
 
@@ -86,6 +86,9 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         },
         Command::Systemd(args) => commands::systemd::systemd(args, &ctx),
         Command::Completions(args) => commands::completions::completions(args, &ctx),
+        Command::Self_(namespace) => match namespace.command {
+            SelfCommand::Update(args) => commands::self_update::update(args, &ctx).await,
+        },
         Command::Java(namespace) => match namespace.command {
             JavaCommand::Install(args) => commands::java::install(args, &ctx).await,
             JavaCommand::List(args) => commands::java::list(args, &ctx).await,

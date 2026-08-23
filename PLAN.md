@@ -587,6 +587,64 @@ release. Windows gets an artifact but no installer and no self-update — replac
 `/etc/ssl/certs`. The feature is dropped; the host trust store is now deliberate, since it
 is what makes `hy` work behind a MITM proxy.
 
+**⬜ Phase 8 — native acquisition (not started).** Goal: **`hy install` never runs the jar.**
+Today it spawns `--bootstrap` and scrapes ANSI-coloured console text for the device code,
+so a wording change breaks it silently.
+
+Recon against `Server-0.5.9.jar`, `com/hypixel/hytale/server/core/auth/AuthConfig.class`:
+
+```
+CLIENT_ID    hytale-server        SCOPES  openid offline auth:server
+device auth  https://oauth.accounts.hytale.com/oauth2/device/auth
+token        https://oauth.accounts.hytale.com/oauth2/token
+sessions     https://sessions.hytale.com    (/game-session/new, /refresh)
+```
+
+**No client secret exists.** `OAuthClient` sends `grant_type=refresh_token&client_id=` and
+nothing more, so this is RFC 8252's public client and the id is an identifier rather than a
+credential. The endpoint shape is Ory Hydra and the live
+`/.well-known/openid-configuration` advertises `device_authorization_endpoint`, so the flow
+is plain RFC 8628 — honour `interval`, tolerate `authorization_pending` and `slow_down`.
+
+Registering our own client would not help: `auth:server` is Hytale's own scope, and the
+session service almost certainly checks `aud`/`azp` before issuing the game session that
+gates the download. The console output costs nothing either — `hy` already renders `Open:`,
+`Enter code:`, and the countdown itself, so those four lines would come from the device-auth
+response's `verification_uri`, `user_code`, `verification_uri_complete`, and `expires_in`
+rather than from scraped text.
+
+**The one real blocker is the payload.** Nothing in the auth package names it: `Assets.zip`
+is not on maven, and `--bootstrap` help says `/update download` populates "Assets.zip,
+start.sh/bat and the Server/ JAR layout" — a layout `hy` would then have to reproduce.
+Capture a real bootstrap through a proxy before writing anything; that turns the CDN
+request and the `sessions.hytale.com` exchange into a transcript.
+
+**`auth.enc` is reproducible.** A natively installed server never runs the jar, so `hy` must
+write the credential store itself. `EncryptedAuthCredentialStore` uses only JCA primitives,
+all of them class constants:
+
+```
+AES/GCM/NoPadding   IV 12 B, tag 128 bit, key 256 bit
+PBKDF2WithHmacSHA256, 100_000 iterations
+SALT      = "HytaleAuthCredentialStore".getBytes(UTF_8)
+payload   = AccessToken, RefreshToken, ExpiresAt (Instant), ProfileUuid
+file mode = OWNER_READ | OWNER_WRITE
+```
+
+**The passphrase is ours to choose**, which removes the hard part: resolution runs
+`HYTALE_AUTH_KEY_FILE` (path, contents trimmed) → `HYTALE_AUTH_KEY` (literal) → a key file
+the jar generates beside `auth.enc`. Setting the env var on spawn means never discovering
+that generated key. Decryption tries every candidate and re-encrypts on success, so adopting
+a jar-installed instance should migrate rather than break.
+
+Left to determine: how the codec frames its output and where the IV sits. Both need a real
+`auth.enc` — capture one before it is reinstalled away. `--identity-token` and
+`--session-token` remain a fallback if writing the store proves unreliable.
+
+Keep the console path as a fallback: presenting as `hytale-server` is interop with the
+operator's own account, but a rotated client or added attestation breaks the native path
+while the jar keeps working.
+
 ### Optional, not committed
 
 - **`hy plugin`** (below) is the remaining optional item; the console UI is now built.

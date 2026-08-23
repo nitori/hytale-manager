@@ -2,7 +2,7 @@
 
 use anyhow::{Result, bail};
 use hy_backup::store::{self, Origin};
-use hy_backup::{CreateOptions, History, liveness, ops::Restrict};
+use hy_backup::{CreateOptions, History, ops::Restrict};
 use hy_cli::{BackupCreateArgs, BackupPruneArgs, BackupRestoreArgs};
 use hy_instance::Instance;
 use owo_colors::OwoColorize;
@@ -150,22 +150,22 @@ fn take(
 
 /// A live server rewrites the world underneath us, so a snapshot taken now may be torn.
 ///
-/// The lock is authoritative but fails open where locks do not work — v9fs, or a server
-/// started from Windows — so recent writes are checked as well.
+/// The run lock is the whole answer: anything `hy` starts holds it, and the `start.sh` we
+/// generate is a call to `hy run`. A server launched some other way — the jar by hand — is
+/// invisible here, which is what `--force` documents.
 fn refuse_if_running(instance: &Instance, force: bool, ctx: &Context) -> Result<()> {
-    let reason = if hy_run::RunLock::is_held(instance.root()) {
-        "the server is running"
-    } else if hy_backup::liveness::looks_active(instance.layout(), liveness::ACTIVE_WINDOW) {
-        "the server was writing to Server/ moments ago"
-    } else {
+    if !hy_run::RunLock::is_held(instance.root()) {
         return Ok(());
-    };
+    }
 
     if !force {
-        bail!("{reason}; stop it first, or pass --force to accept a possibly torn copy");
+        bail!(
+            "the server is running; stop it first, or pass --force to accept a possibly \
+             torn copy"
+        );
     }
     ctx.printer
-        .warn(format!("{reason}; this copy may be inconsistent"));
+        .warn("the server is running; this copy may be inconsistent");
     Ok(())
 }
 

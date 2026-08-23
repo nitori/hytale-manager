@@ -522,11 +522,13 @@ without it cooperating. `list` marks superseded entries, so the panic-restore-af
 rollback case — landing on the abandoned branch and losing everything since — is visible
 rather than silent.
 
-**The running-server guard needs two signals.** `hy run`'s lock is authoritative but fails
-*open* where locks do not work: `var/` on WSL2 is v9fs, where `flock` is unreliable, and a
-server started from Windows holds a lock no Linux process can see. Observed live — the
-guard passed and a snapshot of a running world was taken. Recent writes under `Server/` now
-back it up; portable, weaker, and honest about being a heuristic.
+**The running-server guard is `hy run`'s lock, and only that.** A recent-writes heuristic
+backed it up for a while, because `flock` is unreliable on v9fs — `var/` on WSL2 — and a
+server started from Windows holds a lock no Linux process can see. It was dropped in phase 8:
+deployment is Linux, where `flock` works, and the generated `start.sh` is a call to `hy run`,
+so the launcher takes the lock too. What the heuristic actually cost was refusing backups for
+two minutes after an operator edited `config.json`. A server started by running the jar
+directly is invisible to the guard; `--force` is what documents that.
 
 **✅ Phase 6 — polish.** Shell completions and systemd unit generation.
 

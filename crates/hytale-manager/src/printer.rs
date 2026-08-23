@@ -71,15 +71,6 @@ impl Printer {
         }
     }
 
-    /// A line produced by the server and passed through by us.
-    ///
-    /// Deliberately untagged: `[hy]` claims we said it, and misattributing the server's
-    /// output is the confusion this prefix exists to prevent.
-    pub fn relay(self, message: impl Display) {
-        if self.verbosity > Verbosity::Quiet {
-            anstream::eprintln!("  {}", message.dimmed());
-        }
-    }
 
     /// Machine-consumable output.
     ///

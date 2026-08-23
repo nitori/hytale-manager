@@ -106,6 +106,7 @@ pub async fn run(
         command
             .args(&spec.args)
             .current_dir(&spec.working_dir)
+            .envs(spec.env.iter().map(|(k, v)| (k, v)))
             .stdin(std::process::Stdio::piped())
             .kill_on_drop(true);
         if options.output.is_captured() {

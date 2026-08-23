@@ -127,7 +127,7 @@ async fn provision(
 
     ctx.printer
         .event("No server installed here — installing one first".to_string());
-    install::provision(instance, &args.selector, None, None, ctx).await
+    install::provision(instance, None, None, ctx).await
 }
 
 fn report(ctx: &Context, instance: &hy_instance::Instance, outcome: &Outcome) {

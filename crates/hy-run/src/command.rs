@@ -23,6 +23,8 @@ pub struct ServerCommand {
     pub program: PathBuf,
     pub args: Vec<OsString>,
     pub working_dir: PathBuf,
+    /// Added to the server's environment, not replacing it.
+    pub env: Vec<(OsString, OsString)>,
 }
 
 impl ServerCommand {
@@ -76,10 +78,16 @@ pub fn build(instance: &Instance, java: &Path, extra: &[String]) -> Result<Serve
 
     args.extend(extra.iter().map(OsString::from));
 
+    // Nothing is forced into the environment: `hy-auth` resolves the credential passphrase
+    // through the same chain the server does, so both agree without being told. Overriding
+    // it here would instead pin the server to a key `hy` did not write under.
+    let env = Vec::new();
+
     Ok(ServerCommand {
         program: java.to_path_buf(),
         args,
         working_dir: layout.server_dir(),
+        env,
     })
 }
 
@@ -97,6 +105,14 @@ mod tests {
         std::fs::write(root.join("hytale.toml"), config).unwrap();
         let instance = Instance::at(root).unwrap();
         (dir, instance)
+    }
+
+    /// The server derives the same passphrase we do, so `hy` must not pin it to another.
+    #[test]
+    fn nothing_is_forced_into_the_environment() {
+        let (dir, instance) = instance_with("");
+        std::fs::write(dir.path().join("Server/auth.key"), b"stale").unwrap();
+        assert!(build(&instance, Path::new("java"), &[]).unwrap().env.is_empty());
     }
 
     fn strings(command: &ServerCommand) -> Vec<String> {

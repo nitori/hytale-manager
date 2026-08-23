@@ -12,6 +12,7 @@ name = "hy"
 path = "src/main.rs"
 
 [dependencies]
+hy-auth = { workspace = true }
 hy-backup = { workspace = true }
 hy-cli = { workspace = true }
 hy-dist = { workspace = true }
@@ -37,3 +38,6 @@ tracing-subscriber = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -77,6 +77,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Init(args) => commands::init::init(args, &ctx),
         Command::Install(args) => commands::install::install(args, &ctx).await,
+        Command::Auth(args) => commands::auth::auth(args, &ctx).await,
         Command::Status(args) => commands::status::status(args, &ctx).await,
         Command::Backup(namespace) => match namespace.command {
             BackupCommand::Create(args) => commands::backup::create(args, &ctx),

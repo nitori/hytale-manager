@@ -71,6 +71,9 @@ pub enum Command {
     /// Run the server, restarting it to apply updates
     Run(RunArgs),
 
+    /// Authenticate this instance against a Hytale account
+    Auth(AuthArgs),
+
     /// Show the state of a server instance
     Status(StatusArgs),
 
@@ -108,6 +111,13 @@ pub struct SelfUpdateArgs {
     /// Report whether a newer release exists without installing it
     #[arg(long)]
     pub check: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AuthArgs {
+    /// Authenticate again even if stored credentials are already present
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

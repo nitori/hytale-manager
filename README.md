@@ -12,8 +12,9 @@
 A CLI for managing Hytale dedicated servers — installation, backups, and running the
 server. The binary is called `hy`.
 
-**Status:** early. `hy init`, `hy install`, `hy run`, `hy backup`, `hy status`, `hy java`,
-`hy systemd`, `hy completions`, and `hy self update` work; server updates do not yet. See
+**Status:** early. `hy init`, `hy auth`, `hy install`, `hy run`, `hy backup`, `hy status`,
+`hy java`, `hy systemd`, `hy completions`, and `hy self update` work; the server updates
+itself in place, but there is no `hy update` command to drive it yet. See
 [PLAN.md](PLAN.md) for the roadmap.
 
 ## Install
@@ -53,6 +54,7 @@ cargo test --workspace
 | `hy backup create\|list\|restore\|prune` | Snapshot and roll back server state |
 | `hy status` | Instance state, layout, version, Java, and backup settings |
 | `hy systemd` | Write a systemd unit for this instance |
+| `hy auth [--force]` | Authenticate this instance against a Hytale account |
 | `hy completions <SHELL>` | Print a completion script |
 | `hy self update [--check]` | Replace this binary with the newest release |
 
@@ -60,14 +62,19 @@ cargo test --workspace
 
 ### `hy install`
 
-`Assets.zip` is 3.3 GB and is not on maven, so it cannot simply be downloaded. `hy` fetches
-the server jar, runs it in `--bootstrap` mode, and drives the console: it sends
-`/auth login device`, shows you the device code to enter in a browser, then sends
-`/update download` to pull the payload.
+`Assets.zip` is 3.3 GB and is not on maven, but `hy` fetches it directly — the server jar is
+never run to install. `hy auth` drives the OAuth device flow (it shows you a code to enter in
+a browser) and writes the same `auth.enc` the server would; `hy install` then reads the
+patchline's manifest, downloads the payload, verifies its SHA-256, and unpacks it. Installing
+needs no Java at all.
 
-That means installing **needs an interactive terminal**. `hy run` will install a missing
-server for you, but only when it can actually show you a code — under systemd or in CI it
-fails and tells you to run `hy install` by hand first.
+Authenticating **needs an interactive terminal**, since you have to be shown a code. `hy run`
+installs a missing server for you, but only when it can show one — under systemd or in CI it
+fails and tells you to run `hy install` by hand first. Once credentials exist they are
+reused, so only the first install is interactive.
+
+Only the newest build of a patchline can be installed: the asset service publishes exactly
+one, so `--version` is refused if it names anything else.
 
 ### `hy backup`
 

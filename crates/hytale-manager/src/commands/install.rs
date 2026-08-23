@@ -1,33 +1,22 @@
-//! `hy install` — fetch a server and authenticate it.
+//! `hy install` — fetch and unpack a server, without running the jar.
 //!
-//! `Assets.zip` is 3.3 GB and is not published on maven, so it cannot simply be downloaded.
-//! The only way in is the server's own bootstrap mode: fetch the jar, run it with
-//! `--bootstrap`, drive `/auth login device` and `/update setup` over its stdin, and let it
-//! extract the payload and shut itself down.
+//! `Assets.zip` is 3.3 GB and is not on maven, but it is not out of reach either: the asset
+//! service hands out a signed URL for an archive carrying the whole layout. Authenticate
+//! (see [`super::auth`]), read the patchline's manifest, download, verify, unpack. No JVM is
+//! involved, so installing does not provision Java — only running does.
 
 use std::io::IsTerminal;
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use hy_cli::{InstallArgs, JavaSelector};
-use hy_dist::{DistClient, Signal, bootstrap, maven};
+use hy_cli::InstallArgs;
+use hy_dist::{DistClient, maven};
 use hy_instance::Instance;
-use hy_run::Session;
 use owo_colors::OwoColorize;
 
-use crate::commands::{Context, java};
+use crate::commands::Context;
 use crate::printer::Printer;
 use crate::progress::BarReporter;
-
-/// A booted server announces itself in under two seconds; this only bounds a hang.
-const BOOT_TIMEOUT: Duration = Duration::from_secs(120);
-/// How long to wait for the device code after asking for it.
-const CODE_TIMEOUT: Duration = Duration::from_secs(60);
-/// The server states a 900 s expiry for the code; allow a little past it.
-const AUTH_TIMEOUT: Duration = Duration::from_secs(960);
-/// Extracting a 3.3 GB payload is slow, but total silence still means something broke.
-const PAYLOAD_TIMEOUT: Duration = Duration::from_secs(1800);
 
 pub async fn install(args: InstallArgs, ctx: &Context) -> Result<()> {
     let root = match &args.dir {
@@ -58,15 +47,19 @@ pub async fn install(args: InstallArgs, ctx: &Context) -> Result<()> {
         return Ok(());
     }
 
-    provision(&instance, &args.selector, args.version.as_deref(), args.patchline.as_deref(), ctx)
-        .await?;
+    provision(
+        &instance,
+        args.version.as_deref(),
+        args.patchline.as_deref(),
+        ctx,
+    )
+    .await?;
     Ok(())
 }
 
 /// Fetch, bootstrap, and authenticate a server into `instance`. Returns it reloaded.
 pub async fn provision(
     instance: &Instance,
-    selector: &JavaSelector,
     version: Option<&str>,
     patchline: Option<&str>,
     ctx: &Context,
@@ -79,183 +72,122 @@ pub async fn provision(
         .unwrap_or_else(|| instance.config().server.patchline.as_str().to_string());
     hy_dist::validate_patchline(&patchline)?;
 
-    // Settle what to install before provisioning a JDK, so a mistyped version does not cost
-    // a 140 MB download first.
-    let client = DistClient::new()?;
-    let metadata = client
-        .metadata(&patchline)
+    // Checked against maven before anything is downloaded, so a mistyped version fails at
+    // once — and because the asset service will not say what else exists.
+    let requested = match version {
+        Some(version) => {
+            let client = DistClient::new()?;
+            let metadata = client
+                .metadata(&patchline)
+                .await
+                .with_context(|| format!("could not list published `{patchline}` versions"))?;
+            Some(maven::select(&metadata, &patchline, Some(version))?)
+        }
+        None => None,
+    };
+
+    // Credentials first: every asset request is authenticated.
+    super::auth::ensure(instance, false, ctx).await?;
+    let credentials = hy_auth::CredentialStore::new(&layout.server_dir())
+        .read()?
+        .ok_or_else(|| anyhow::anyhow!("no credentials after authenticating"))?;
+
+    let http = reqwest::Client::builder()
+        .user_agent(concat!("hy/", env!("CARGO_PKG_VERSION")))
+        .build()?;
+    let assets = hy_dist::PayloadClient::new(http, credentials.access_token);
+
+    let published = assets
+        .manifest(&patchline)
         .await
-        .with_context(|| format!("could not list published `{patchline}` versions"))?;
-    let version = maven::select(&metadata, &patchline, version)?;
+        .with_context(|| format!("could not read the `{patchline}` version manifest"))?;
+    // The service publishes exactly one build per patchline, so an older version cannot be
+    // asked for — better to say so than to install something other than what was named.
+    if let Some(requested) = &requested
+        && *requested != published.version
+    {
+        bail!(
+            "`{patchline}` currently publishes {}, not {requested}; \
+             only the newest build of a patchline can be installed",
+            published.version
+        );
+    }
 
     ctx.printer.event(format!(
         "Installing Hytale server {} ({patchline})",
-        version.bold()
+        published.version.bold()
     ));
-
-    let resolved = java::resolve_for(selector, ctx).await?;
-
+    ctx.printer
+        .event("Downloading the server payload — this takes a while".to_string());
     let reporter = BarReporter::new(ctx.progress);
-    let cached = client
-        .download_jar(&patchline, &version, &cache_dir()?, &reporter)
+    let archive = assets
+        .download(&published, &cache_dir()?, &reporter)
         .await
-        .with_context(|| format!("could not download server {version}"))?;
+        .with_context(|| format!("could not download server {}", published.version))?;
 
-    // The bootstrap jar must sit in the instance root: it extracts the payload into its
-    // working directory and creates `Server/` there.
-    let installer = root.join("HytaleServer.jar");
+    let size = std::fs::metadata(&archive).map(|meta| meta.len()).ok();
+    ctx.printer.event(match size {
+        Some(size) => format!("Downloaded {}", crate::printer::bytes(size)),
+        None => "Downloaded the server payload".to_string(),
+    });
+
+    // Unpacking several gigabytes is slow enough that silence reads as a hang.
+    ctx.printer.event("Unpacking".to_string());
     std::fs::create_dir_all(&root)?;
-    std::fs::copy(&cached, &installer)
-        .with_context(|| format!("could not place the installer at {}", installer.display()))?;
-
-    bootstrap_server(&resolved.executable, &root, layout, ctx).await?;
-
-    // The server deletes the installer on unix but cannot on Windows while it is running.
-    if installer.is_file() && !layout.jar().is_file() {
-        bail!(
-            "the bootstrap finished but {} was not created",
-            layout.jar().display()
-        );
-    }
-    if installer.is_file() {
-        let _ = std::fs::remove_file(&installer);
-    }
+    hy_dist::payload::extract_into(&archive, &root)
+        .with_context(|| format!("could not unpack the payload into {}", root.display()))?;
+    write_launcher_scripts(&root, ctx.printer)?;
 
     let reloaded = Instance::at(&root)?;
-    stamp_version(&reloaded, &version, &patchline, ctx)?;
+    stamp_version(&reloaded, &published.version, &patchline, ctx)?;
 
     let findings = reloaded.layout().validate();
     for finding in &findings {
         ctx.printer.warn(finding.to_string());
     }
     if findings.is_empty() {
-        ctx.printer
-            .event(format!("Installed {} to {}", version.bold(), root.display()));
+        ctx.printer.event(format!(
+            "Installed {} to {}",
+            published.version.bold(),
+            root.display()
+        ));
     }
 
     Instance::at(&root).map_err(Into::into)
 }
 
-/// Run the jar in bootstrap mode, driving the console.
-async fn bootstrap_server(
-    java: &Path,
-    root: &Path,
-    layout: &hy_instance::Layout,
-    ctx: &Context,
-) -> Result<()> {
-    let args = ["-jar", "HytaleServer.jar", "--bootstrap"].map(Into::into);
-    let mut session = Session::spawn(java, &args, root)?;
+/// Write `start.sh` and `start.bat`.
+///
+/// The server refuses to enable its own update checker unless a launcher sits beside
+/// `Assets.zip` — so these have to exist. Since `hy run` is what supervises the exit-8
+/// restart loop the shipped scripts implement, they delegate to it rather than duplicating
+/// it, and an operator who runs them by hand gets the same behaviour as `hy run`.
+fn write_launcher_scripts(root: &Path, printer: Printer) -> Result<()> {
+    const SH: &str = "#!/bin/sh\n\
+        # Generated by hy. The server looks for this file to enable its update checker.\n\
+        exec hy run --dir \"$(dirname \"$0\")\" -- \"$@\"\n";
+    const BAT: &str = "@echo off\r\n\
+        rem Generated by hy. The server looks for this file to enable its update checker.\r\n\
+        hy run --dir \"%~dp0\" -- %*\r\n";
 
-    // Credentials already present mean the device flow is unnecessary.
-    let needs_auth = !layout.server_dir().join("auth.enc").is_file();
-
-    // Let the server finish its startup chatter before typing at it, so the command is not
-    // swallowed by a console that is not reading yet.
-    settle(&mut session, ctx.printer).await;
-
-    if needs_auth {
-        ctx.printer.event("Authenticating".bold().to_string());
-        session.send("/auth login device").await?;
-        await_authentication(&mut session, ctx).await?;
+    for (name, body) in [("start.sh", SH), ("start.bat", BAT)] {
+        let path = root.join(name);
+        std::fs::write(&path, body)
+            .with_context(|| format!("could not write {}", path.display()))?;
     }
 
-    // `/update setup` only extracts the wrapper scripts. The jar's own `--bootstrap` help
-    // names `/update download` as what populates Assets.zip and the Server/ layout.
-    session.send("/update download").await?;
-    ctx.printer
-        .event("Downloading the server payload — this takes a while".to_string());
-
-    // The server shuts itself down once the payload is extracted.
-    loop {
-        match session.next_line_within(PAYLOAD_TIMEOUT).await {
-            Some(Some(line)) => echo(ctx.printer, &line),
-            Some(None) => break,
-            None => {
-                let _ = session.kill().await;
-                bail!("the server stopped producing output while extracting the payload");
-            }
-        }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = root.join("start.sh");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("could not mark {} executable", path.display()))?;
     }
-
-    let status = session.finish().await?;
-    if !status.success() {
-        bail!("the bootstrap server exited with {status}");
-    }
+    printer.detail("wrote start.sh and start.bat");
     Ok(())
 }
 
-/// Surface the device code, then wait for the operator to complete authorisation.
-async fn await_authentication(session: &mut Session, ctx: &Context) -> Result<()> {
-    let mut deadline = CODE_TIMEOUT;
-    let mut code_seen = false;
-
-    loop {
-        let Some(next) = session.next_line_within(deadline).await else {
-            let _ = session.kill().await;
-            if code_seen {
-                bail!("timed out waiting for the authorisation to be completed");
-            }
-            bail!(
-                "the server did not print a device code within {}s",
-                CODE_TIMEOUT.as_secs()
-            );
-        };
-        let Some(line) = next else {
-            bail!("the server exited before authentication completed");
-        };
-
-        match bootstrap::classify(&line) {
-            Signal::Code(code) => {
-                code_seen = true;
-                deadline = AUTH_TIMEOUT;
-                ctx.printer
-                    .event(format!("  Enter code:  {}", code.bold().green()));
-            }
-            Signal::Visit(url) | Signal::DirectLink(url) => {
-                ctx.printer.event(format!("  Open:        {}", url.cyan()));
-            }
-            Signal::Waiting { seconds } => {
-                if let Some(seconds) = seconds {
-                    ctx.printer
-                        .detail(format!("waiting for authorisation ({seconds}s to complete)"));
-                }
-            }
-            Signal::Authenticated => {
-                ctx.printer.event("Authenticated".to_string());
-                return Ok(());
-            }
-            Signal::AuthFailed => bail!("the server reported an authentication failure: {line}"),
-            Signal::Other => echo(ctx.printer, &line),
-        }
-    }
-}
-
-/// Drain output until the server reports it has booted, falling back to a lull.
-///
-/// Typing at the console before it is reading loses the command, and boot chatter can pause
-/// for longer than any safe silence threshold, so the explicit marker is what we wait for.
-async fn settle(session: &mut Session, printer: Printer) {
-    while let Some(Some(line)) = session.next_line_within(BOOT_TIMEOUT).await {
-        echo(printer, &line);
-        if bootstrap::is_booted(&line) {
-            return;
-        }
-    }
-}
-
-fn echo(printer: Printer, line: &str) {
-    let line = bootstrap::strip_ansi(line);
-    if !line.trim().is_empty() && !bootstrap::is_divider(&line) {
-        printer.relay(line);
-    }
-}
-
-fn stamp_version(
-    instance: &Instance,
-    version: &str,
-    patchline: &str,
-    ctx: &Context,
-) -> Result<()> {
+fn stamp_version(instance: &Instance, version: &str, patchline: &str, ctx: &Context) -> Result<()> {
     let mut document = instance.document()?;
     document.set_server_version(version);
     document.save()?;
@@ -271,4 +203,36 @@ fn cache_dir() -> Result<std::path::PathBuf> {
 /// Whether the device-code prompt could actually be answered.
 pub fn can_authenticate_interactively() -> bool {
     std::io::stderr().is_terminal() && std::io::stdin().is_terminal()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The server disables its own update checker unless a launcher sits beside
+    /// `Assets.zip`, so these are load-bearing rather than decoration.
+    #[test]
+    fn launcher_scripts_delegate_to_hy_run() {
+        let dir = tempfile::tempdir().unwrap();
+        write_launcher_scripts(dir.path(), Printer::new(true, 0)).unwrap();
+
+        let sh = std::fs::read_to_string(dir.path().join("start.sh")).unwrap();
+        assert!(sh.starts_with("#!/bin/sh"), "{sh}");
+        assert!(sh.contains("hy run"), "{sh}");
+        assert!(dir.path().join("start.bat").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shell_launcher_is_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        write_launcher_scripts(dir.path(), Printer::new(true, 0)).unwrap();
+
+        let mode = std::fs::metadata(dir.path().join("start.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "mode {mode:o}");
+    }
 }

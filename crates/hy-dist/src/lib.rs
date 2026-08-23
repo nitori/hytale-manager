@@ -8,8 +8,10 @@ pub mod bootstrap;
 pub mod client;
 pub mod error;
 pub mod maven;
+pub mod payload;
 
 pub use bootstrap::Signal;
 pub use client::{DistClient, PRE_RELEASE, RELEASE, validate_patchline};
 pub use error::{Error, Result};
 pub use maven::Metadata;
+pub use payload::{PayloadClient, VersionManifest};

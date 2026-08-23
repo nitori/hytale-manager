@@ -587,9 +587,12 @@ release. Windows gets an artifact but no installer and no self-update — replac
 `/etc/ssl/certs`. The feature is dropped; the host trust store is now deliberate, since it
 is what makes `hy` work behind a MITM proxy.
 
-**⬜ Phase 8 — native acquisition (not started).** Goal: **`hy install` never runs the jar.**
-Today it spawns `--bootstrap` and scrapes ANSI-coloured console text for the device code,
-so a wording change breaks it silently.
+**✅ Phase 8 — native acquisition.** `hy install` never runs the jar: `hy auth` drives the
+device grant, then the payload is fetched, verified, and unpacked directly. `hy-auth` and
+`hy-dist::payload`, plus `hy auth`. 41 tests.
+
+Installing no longer needs a JVM — the JDK was only ever there to run the bootstrap — and
+the console scraping it replaced is gone, along with `Printer::relay`.
 
 Recon against `Server-0.5.9.jar`, `com/hypixel/hytale/server/core/auth/AuthConfig.class`:
 
@@ -607,17 +610,30 @@ credential. The endpoint shape is Ory Hydra and the live
 is plain RFC 8628 — honour `interval`, tolerate `authorization_pending` and `slow_down`.
 
 Registering our own client would not help: `auth:server` is Hytale's own scope, and the
-session service almost certainly checks `aud`/`azp` before issuing the game session that
-gates the download. The console output costs nothing either — `hy` already renders `Open:`,
-`Enter code:`, and the countdown itself, so those four lines would come from the device-auth
-response's `verification_uri`, `user_code`, `verification_uri_complete`, and `expires_in`
-rather than from scraped text.
+asset service checks the token before signing anything.
 
-**The one real blocker is the payload.** Nothing in the auth package names it: `Assets.zip`
-is not on maven, and `--bootstrap` help says `/update download` populates "Assets.zip,
-start.sh/bat and the Server/ JAR layout" — a layout `hy` would then have to reproduce.
-Capture a real bootstrap through a proxy before writing anything; that turns the CDN
-request and the `sessions.hytale.com` exchange into a transcript.
+**The payload is two signed-URL hops**, from `UpdateService`. No proxy capture was needed;
+the endpoints are constants:
+
+```
+GET {account-data}/game-assets/version/{patchline}.json   Bearer  ->  {"url": …}
+  -> GET that                                                     ->  {version, download_url, sha256}
+GET {account-data}/game-assets/{download_url}             Bearer  ->  {"url": …}
+  -> GET that                                                     ->  the .zip
+```
+
+Signed URLs are short-lived, so each is requested immediately before use. **The JSON keys
+are snake_case** — `download_url`, not the `downloadUrl` the Java field is named, because the
+codec wraps every key in `externalKey`. Guessing camelCase cost a live round trip; a test now
+pins the spelling.
+
+The archive is rooted at the instance directory, verified against a real install; entries
+escaping it are refused. `start.sh`/`bat` are **generated**, not taken from the archive: the
+server disables its update checker unless a launcher sits beside `Assets.zip`, so ours exist
+and delegate to `hy run` rather than duplicating the exit-8 loop.
+
+**Only the newest build of a patchline is reachable** — the service publishes exactly one —
+so `--version` is checked against maven first and refused when it names anything else.
 
 **`auth.enc` is reproducible.** A natively installed server never runs the jar, so `hy` must
 write the credential store itself. `EncryptedAuthCredentialStore` uses only JCA primitives,
@@ -631,19 +647,26 @@ payload   = AccessToken, RefreshToken, ExpiresAt (Instant), ProfileUuid
 file mode = OWNER_READ | OWNER_WRITE
 ```
 
-**The passphrase is ours to choose**, which removes the hard part: resolution runs
-`HYTALE_AUTH_KEY_FILE` (path, contents trimmed) → `HYTALE_AUTH_KEY` (literal) → a key file
-the jar generates beside `auth.enc`. Setting the env var on spawn means never discovering
-that generated key. Decryption tries every candidate and re-encrypts on success, so adopting
-a jar-installed instance should migrate rather than break.
+**The passphrase chain is the server's, mirrored rather than overridden**:
+`HYTALE_AUTH_KEY_FILE` → `HYTALE_AUTH_KEY` → **`HardwareUtil.getUUID()`** → an `auth.key`
+file, generated only if nothing else exists. Reads try every candidate, as the server does,
+so an instance the jar installed is adopted rather than orphaned.
 
-Left to determine: how the codec frames its output and where the IV sits. Both need a real
-`auth.enc` — capture one before it is reinstalled away. `--identity-token` and
-`--session-token` remain a fallback if writing the store proves unreliable.
+Mirroring is what makes the store readable by a server started *any* way. Writing under
+`auth.key` and pointing `HYTALE_AUTH_KEY_FILE` at it was tried first and is wrong: the
+hardware UUID outranks `auth.key`, so a server started without that variable logged
+"Decrypted credentials using fallback key", rewrote `auth.enc`, and locked `hy` out. Forcing
+the variable fails the same way, pinning the server to a key `hy` did not write under.
 
-Keep the console path as a fallback: presenting as `hytale-server` is interop with the
-operator's own account, but a rotated client or added attestation breaks the native path
-while the jar keeps working.
+The hardware UUID is `/etc/machine-id` with dashes reinserted — verified byte-for-byte
+against `HardwareUtil.getUUID()` — and registry `MachineGuid` on Windows; macOS would need
+`ioreg` and falls through to the key file until that is checked.
+
+Verified end to end against `Server-0.5.9.jar` with no environment set: the jar's own
+`EncryptedAuthCredentialStore` loads what `hy` wrote, without falling back or rewriting it.
+
+Presenting as `hytale-server` is interop with the operator's own account, but a rotated
+client or added attestation would break the native path while the jar kept working.
 
 ### Optional, not committed
 

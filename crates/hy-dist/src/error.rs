@@ -28,6 +28,19 @@ pub enum Error {
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[error("the {what} request failed with HTTP {status}: {body}")]
+    AssetService {
+        what: &'static str,
+        status: u16,
+        body: String,
+    },
+
+    #[error("the payload archive contains an unsafe path `{0}`")]
+    UnsafeArchivePath(String),
+
+    #[error(transparent)]
+    Zip(#[from] zip::result::ZipError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

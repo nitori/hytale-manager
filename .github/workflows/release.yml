@@ -22,7 +22,7 @@ jobs:
   check-tag:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: |
           manifest=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
           tag="${GITHUB_REF_NAME#v}"
@@ -47,7 +47,7 @@ jobs:
             asset: hy-x86_64-pc-windows-msvc.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # aws-lc-sys, which rustls pulls in, compiles C; the musl target needs a musl-targeting
       # compiler for it. musl-tools ships the `x86_64-linux-musl-gcc` name cc-rs looks for.
@@ -74,7 +74,7 @@ jobs:
             cp "target/${{ matrix.target }}/release/hy" "dist/${{ matrix.asset }}"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
@@ -84,9 +84,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -101,7 +101,7 @@ jobs:
       # A prerelease is excluded from the `releases/latest/download/…` redirect that both
       # `install.sh` and `hy self update` read, so a `-rc`/`-dev` tag must be marked as one
       # or every client would update onto it.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           fail_on_unmatched_files: true

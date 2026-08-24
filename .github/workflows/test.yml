@@ -1,13 +1,23 @@
 name: test
 
-# Runs on its own for pull requests, and is called by release.yml so a tag cannot publish
+# Every push, because work lands on master directly here — a pull-request-only trigger meant
+# nothing on master was ever tested. Also called by release.yml, so a tag cannot publish
 # something that was never tested.
 on:
+  push:
+    # Branches only. A tag reaches these tests through release.yml, which gates the build on
+    # them; triggering here as well would run them twice for every release.
+    branches: ["**"]
   pull_request:
   workflow_call:
 
 permissions:
   contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  # Superseding a push makes its run irrelevant, but never cancel one a release is waiting on.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   CARGO_TERM_COLOR: always

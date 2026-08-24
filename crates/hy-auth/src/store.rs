@@ -227,7 +227,10 @@ mod tests {
         let sealed = Aes256Gcm::new(&derive_key("not-in-the-chain"))
             .encrypt(
                 &Nonce::from([0u8; NONCE_LEN]),
-                Payload { msg: b"whatever", aad: &[] },
+                Payload {
+                    msg: b"whatever",
+                    aad: &[],
+                },
             )
             .unwrap();
         let mut file = vec![0u8; NONCE_LEN];
@@ -271,5 +274,3 @@ mod tests {
         assert!(matches!(store.read(), Err(Error::EmptyKeyFile(_))));
     }
 }
-
-

@@ -40,7 +40,9 @@ pub fn create(layout: &Layout, history: &History, options: &CreateOptions) -> Re
 
     Ok(Backup {
         id,
-        size: std::fs::metadata(&destination).map(|m| m.len()).unwrap_or(0),
+        size: std::fs::metadata(&destination)
+            .map(|m| m.len())
+            .unwrap_or(0),
         path: destination,
         origin: Origin::Snapshot,
         created,
@@ -101,11 +103,7 @@ pub fn restore(
 
 /// Replace exactly the selected entries, so everything else — the jar, the AOT config, and
 /// anything not being rolled back — survives untouched.
-fn restore_snapshot(
-    layout: &Layout,
-    backup: &Backup,
-    restrict: &Restrict,
-) -> Result<Vec<PathBuf>> {
+fn restore_snapshot(layout: &Layout, backup: &Backup, restrict: &Restrict) -> Result<Vec<PathBuf>> {
     let server = layout.server_dir();
     let wanted: Vec<PathBuf> = archive::covered_entries(&backup.path)?
         .into_iter()
@@ -239,11 +237,14 @@ mod tests {
         std::fs::write(layout.server_config(), b"{\"a\":2}").unwrap();
 
         let mut history = history;
-        let restored =
-            restore(&layout, &mut history, &backup, &Restrict::Everything).unwrap();
+        let restored = restore(&layout, &mut history, &backup, &Restrict::Everything).unwrap();
 
         assert_eq!(std::fs::read(layout.server_config()).unwrap(), b"{\"a\":1}");
-        assert!(restored.iter().any(|e| e == std::path::Path::new("config.json")));
+        assert!(
+            restored
+                .iter()
+                .any(|e| e == std::path::Path::new("config.json"))
+        );
     }
 
     #[test]
@@ -319,6 +320,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let layout = instance(dir.path());
         let history = History::default();
+
+        // Snapshots are dated from their id, so the archives need no real content here.
+        std::fs::create_dir_all(snapshot_dir(&layout)).unwrap();
+        for id in ["20260820-120000", "20260821-120000", "20260822-120000"] {
+            std::fs::write(snapshot_dir(&layout).join(format!("{id}.tar.gz")), b"x").unwrap();
+        }
         std::fs::create_dir_all(layout.server_backups()).unwrap();
         std::fs::write(
             layout.server_backups().join("2026-08-22_13-33-48.zip"),
@@ -326,20 +333,15 @@ mod tests {
         )
         .unwrap();
 
-        let mut ids = Vec::new();
-        for _ in 0..3 {
-            let backup = create(&layout, &history, &options(&include())).unwrap();
-            ids.push(backup.id.clone());
-            // Ids have one-second resolution.
-            std::thread::sleep(std::time::Duration::from_millis(1100));
-        }
-
         let removed = prune(&layout, &history, 2).unwrap();
         assert_eq!(removed.len(), 1);
-        assert_eq!(removed[0].id, ids[0], "the oldest goes first");
+        assert_eq!(removed[0].id, "20260820-120000", "the oldest goes first");
 
         let left = store::list(&layout, &history).unwrap();
-        assert_eq!(left.iter().filter(|b| b.origin == Origin::Snapshot).count(), 2);
+        assert_eq!(
+            left.iter().filter(|b| b.origin == Origin::Snapshot).count(),
+            2
+        );
         assert_eq!(
             left.iter().filter(|b| b.origin == Origin::Server).count(),
             1,

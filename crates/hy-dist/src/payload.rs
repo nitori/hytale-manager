@@ -5,8 +5,8 @@
 //!
 //! ```text
 //! GET {account-data}/game-assets/version/{patchline}.json   Bearer <token>
-//!   -> {"url": …}  -> GET that -> {version, downloadUrl, sha256}
-//! GET {account-data}/game-assets/{downloadUrl}              Bearer <token>
+//!   -> {"url": …}  -> GET that -> {version, download_url, sha256}
+//! GET {account-data}/game-assets/{download_url}             Bearer <token>
 //!   -> {"url": …}  -> GET that -> the .zip
 //! ```
 //!
@@ -149,18 +149,12 @@ mod tests {
         );
     }
 
-    /// The manifest names a key, not a URL; joining it onto `/game-assets/` is what the
-    /// server does, and fetching it directly would 404.
+    /// Keys are joined straight onto the base, so a trailing slash would produce
+    /// `//game-assets/` and a signed-URL request that does not match.
     #[test]
-    fn the_download_url_is_a_key_not_a_link() {
-        let client = PayloadClient::new(reqwest::Client::new(), "t").with_base("https://example");
+    fn a_trailing_slash_on_the_base_is_dropped() {
+        let client = PayloadClient::new(reqwest::Client::new(), "t").with_base("https://example/");
         assert_eq!(client.base, "https://example");
-    }
-
-    #[test]
-    fn a_signed_url_response_parses() {
-        let signed: SignedUrl = serde_json::from_str(r#"{"url":"https://cdn/x?sig=1"}"#).unwrap();
-        assert_eq!(signed.url, "https://cdn/x?sig=1");
     }
 }
 
@@ -230,7 +224,10 @@ mod extract_tests {
         let written = extract_into(&archive, into.path()).unwrap();
 
         assert_eq!(written.len(), 2);
-        assert_eq!(std::fs::read(into.path().join("Assets.zip")).unwrap(), b"assets");
+        assert_eq!(
+            std::fs::read(into.path().join("Assets.zip")).unwrap(),
+            b"assets"
+        );
         assert_eq!(
             std::fs::read(into.path().join("Server/HytaleServer.jar")).unwrap(),
             b"jar"

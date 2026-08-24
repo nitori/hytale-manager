@@ -9,8 +9,8 @@ use hy_run::{Outcome, RunOptions, RunReporter};
 use owo_colors::OwoColorize;
 
 use crate::commands::{Context, install, java};
-use crate::tui;
 use crate::printer::Printer;
+use crate::tui;
 
 pub async fn run(args: RunArgs, ctx: &Context) -> Result<ExitCode> {
     // Refusing here is deliberate: `hy install` scaffolds because setting up is what it was

@@ -71,7 +71,6 @@ impl Printer {
         }
     }
 
-
     /// Machine-consumable output.
     ///
     /// Never tagged: `hy java find --executable` is meant to be substituted straight into a

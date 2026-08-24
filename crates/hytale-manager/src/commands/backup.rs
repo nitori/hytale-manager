@@ -98,8 +98,11 @@ pub fn restore(args: BackupRestoreArgs, ctx: &Context) -> Result<()> {
         return Ok(());
     }
 
-    ctx.printer
-        .event(format!("Restored {} from {}", describe(&restored), backup.id.bold()));
+    ctx.printer.event(format!(
+        "Restored {} from {}",
+        describe(&restored),
+        backup.id.bold()
+    ));
     ctx.printer
         .detail(format!("now on lineage {}", history.current()));
     if matches!(restrict, Restrict::World) && backup.origin == Origin::Snapshot {

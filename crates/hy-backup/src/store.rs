@@ -172,7 +172,10 @@ fn snapshots(layout: &Layout, history: &History) -> Result<Vec<Backup>> {
 fn server_backups(layout: &Layout, history: &History) -> Result<Vec<Backup>> {
     let mut backups = Vec::new();
     // Older ones are rotated into `archive/` once `--backup-max-count` is exceeded.
-    for dir in [layout.server_backups(), layout.server_backups().join("archive")] {
+    for dir in [
+        layout.server_backups(),
+        layout.server_backups().join("archive"),
+    ] {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -237,7 +240,10 @@ mod tests {
     fn server_stamps_are_parsed() {
         let parsed = parse_server_stamp("2026-08-22_13-33-48").unwrap();
         let local = parsed.to_zoned(jiff::tz::TimeZone::system());
-        assert_eq!(local.strftime("%Y-%m-%d %H:%M:%S").to_string(), "2026-08-22 13:33:48");
+        assert_eq!(
+            local.strftime("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-22 13:33:48"
+        );
     }
 
     #[test]
@@ -264,7 +270,10 @@ mod tests {
         assert_eq!(listed.len(), 2);
 
         let server = listed.iter().find(|b| b.origin == Origin::Server).unwrap();
-        let snapshot = listed.iter().find(|b| b.origin == Origin::Snapshot).unwrap();
+        let snapshot = listed
+            .iter()
+            .find(|b| b.origin == Origin::Snapshot)
+            .unwrap();
         assert_eq!(snapshot.created, "2026-08-22T12:00:00Z".parse().unwrap());
         // Whichever is genuinely later must sort first, regardless of how the names read.
         let expected_first = if server.created > snapshot.created {

@@ -113,7 +113,10 @@ fn dashed(hex: &str) -> Option<String> {
 pub fn resolve(key_file: &Path, env: &dyn Env) -> Result<Resolved> {
     let mut candidates = Vec::new();
 
-    if let Some(path) = env.var(ENV_KEY_FILE).filter(|value| !value.trim().is_empty()) {
+    if let Some(path) = env
+        .var(ENV_KEY_FILE)
+        .filter(|value| !value.trim().is_empty())
+    {
         let path = PathBuf::from(path);
         let raw = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
         let trimmed = raw.trim().to_owned();
@@ -209,7 +212,10 @@ mod tests {
     #[test]
     fn registry_output_without_the_value_is_refused() {
         assert_eq!(machine_guid("ERROR: The system was unable to find"), None);
-        assert_eq!(machine_guid("    MachineGuid    REG_SZ    not-a-guid"), None);
+        assert_eq!(
+            machine_guid("    MachineGuid    REG_SZ    not-a-guid"),
+            None
+        );
     }
 
     #[test]
@@ -288,7 +294,10 @@ mod tests {
         let resolved = resolve(&key, &empty()).unwrap();
 
         if hardware_uuid().is_some() {
-            assert!(!key.exists(), "no key file is needed when a machine id exists");
+            assert!(
+                !key.exists(),
+                "no key file is needed when a machine id exists"
+            );
         } else {
             assert!(key.is_file());
             assert_eq!(resolved.write.len(), 64);

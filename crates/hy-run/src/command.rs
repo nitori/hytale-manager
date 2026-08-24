@@ -32,11 +32,7 @@ impl ServerCommand {
     /// Quoted for reading and pasting, not for re-parsing.
     pub fn display(&self, shell: Shell) -> String {
         std::iter::once(shell.quoted_path(&self.program))
-            .chain(
-                self.args
-                    .iter()
-                    .map(|a| shell.quote(&a.to_string_lossy())),
-            )
+            .chain(self.args.iter().map(|a| shell.quote(&a.to_string_lossy())))
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -112,7 +108,12 @@ mod tests {
     fn nothing_is_forced_into_the_environment() {
         let (dir, instance) = instance_with("");
         std::fs::write(dir.path().join("Server/auth.key"), b"stale").unwrap();
-        assert!(build(&instance, Path::new("java"), &[]).unwrap().env.is_empty());
+        assert!(
+            build(&instance, Path::new("java"), &[])
+                .unwrap()
+                .env
+                .is_empty()
+        );
     }
 
     fn strings(command: &ServerCommand) -> Vec<String> {
@@ -157,8 +158,7 @@ mod tests {
     /// JVM flags are passed through untouched, including ones `hy` has no opinion about.
     #[test]
     fn jvm_options_are_not_second_guessed() {
-        let (_dir, instance) =
-            instance_with("[java]\noptions = [\"-XX:AOTCache=mine.aot\"]\n");
+        let (_dir, instance) = instance_with("[java]\noptions = [\"-XX:AOTCache=mine.aot\"]\n");
         let args = strings(&build(&instance, Path::new("java"), &[]).unwrap());
         assert!(args.contains(&"-XX:AOTCache=mine.aot".to_string()));
     }
@@ -212,11 +212,17 @@ mod tests {
     #[test]
     fn display_follows_the_shell_for_the_java_path() {
         let (_dir, instance) = instance_with("");
-        let command = build(&instance, Path::new(r"C:\Program Files\jdk\bin\java.exe"), &[])
-            .unwrap();
+        let command = build(
+            &instance,
+            Path::new(r"C:\Program Files\jdk\bin\java.exe"),
+            &[],
+        )
+        .unwrap();
 
         assert!(
-            command.display(Shell::Msys).starts_with("'/c/Program Files/jdk/bin/java.exe'"),
+            command
+                .display(Shell::Msys)
+                .starts_with("'/c/Program Files/jdk/bin/java.exe'"),
             "{}",
             command.display(Shell::Msys)
         );

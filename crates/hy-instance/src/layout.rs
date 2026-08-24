@@ -160,8 +160,8 @@ impl std::fmt::Display for Finding {
             }
             Finding::MissingLauncher(root) => write!(
                 f,
-                "no start.sh or start.bat in {} — the server disables its own update \
-                 checker without one; run `/update setup` to restore it",
+                "no start.sh or start.bat in {} — without one the server disables its own \
+                 update checker",
                 root.display()
             ),
         }
@@ -170,7 +170,7 @@ impl std::fmt::Display for Finding {
 
 /// Search `start` and its ancestors for an instance root.
 ///
-/// Uninitialised installs count, so `hy status` works on one the bootstrap jar made.
+/// Uninitialised installs count, so `hy status` works on one `hy` has never touched.
 pub fn discover(start: &Path) -> Option<Layout> {
     start.ancestors().find_map(|dir| {
         let layout = Layout::new(dir);
@@ -212,7 +212,7 @@ mod tests {
     fn discovery_finds_uninitialised_installs() {
         let dir = tempfile::tempdir().unwrap();
         server_install(dir.path());
-        // No hytale.toml: a bootstrap-created install `hy` has never touched.
+        // No hytale.toml: an install `hy` has never touched.
         assert!(!Layout::new(dir.path()).is_initialised());
         assert!(discover(dir.path()).is_some());
     }

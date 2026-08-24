@@ -214,7 +214,10 @@ mod tests {
             std::fs::read(restored.join("universe/world/region.dat")).unwrap(),
             b"world"
         );
-        assert_eq!(std::fs::read(restored.join("mods/plugin.jar")).unwrap(), b"mod");
+        assert_eq!(
+            std::fs::read(restored.join("mods/plugin.jar")).unwrap(),
+            b"mod"
+        );
         assert!(restored.join("config.json").is_file());
     }
 

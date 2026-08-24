@@ -1,8 +1,16 @@
-//! Graceful shutdown.
+//! Graceful shutdown, against a real process and a real signal.
 //!
-//! Deliberately the only test in this binary. Signals are delivered process-wide, so every
-//! tokio listener in the process observes them — running this alongside other supervisor
-//! tests makes them see a stop request that was never meant for them.
+//! The supervisor's own tests drive a fake, which covers every branch of the escalation
+//! without launching anything. What a fake cannot show is that a `SIGTERM` aimed at `hy`
+//! actually reaches the child and that we wait for it to finish saving — so this one stays,
+//! `#[ignore]`d, and is run by hand:
+//!
+//! ```text
+//! cargo test -p hy-run --test shutdown -- --ignored
+//! ```
+//!
+//! It is also the only test in its binary on purpose: signals are delivered process-wide,
+//! so any other tokio listener in the process would observe a stop meant for this one.
 
 #![cfg(unix)]
 
@@ -28,6 +36,7 @@ fn instance(root: &Path) -> Instance {
 /// Regression: on Windows `request_stop` called `TerminateProcess`, killing the JVM
 /// mid-shutdown — no hooks ran, the world was not saved, and `hy` exited 1.
 #[tokio::test]
+#[ignore = "spawns a real process and signals it; run with --ignored"]
 async fn a_requested_stop_waits_for_the_server_then_reports_success() {
     let dir = tempfile::tempdir().unwrap();
     let instance = instance(dir.path());
@@ -58,9 +67,8 @@ async fn a_requested_stop_waits_for_the_server_then_reports_success() {
     std::fs::set_permissions(&java, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let options = RunOptions::new(java);
-    let supervised = tokio::spawn(async move {
-        hy_run::run(&instance, &options, &NoReporter).await
-    });
+    let supervised =
+        tokio::spawn(async move { hy_run::run(&instance, &options, &NoReporter).await });
 
     while !ready.exists() {
         tokio::time::sleep(Duration::from_millis(20)).await;

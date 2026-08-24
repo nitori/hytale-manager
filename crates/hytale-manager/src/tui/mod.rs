@@ -71,7 +71,8 @@ impl Shared {
 
     /// A line from `hy` itself rather than the server, so it can be told apart.
     pub fn note(&self, message: impl Into<String>) {
-        self.console().push(format!("{} {}", crate::printer::PREFIX, message.into()));
+        self.console()
+            .push(format!("{} {}", crate::printer::PREFIX, message.into()));
     }
 
     pub fn as_output(&self) -> Output {

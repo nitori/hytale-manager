@@ -15,8 +15,7 @@
 
 use std::sync::Arc;
 
-use tokio::io::AsyncWriteExt;
-use tokio::process::ChildStdin;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 /// The server's own graceful-shutdown command. Undocumented in the manual, which lists
@@ -25,10 +24,14 @@ pub const SHUTDOWN_COMMAND: &str = "shutdown";
 
 const CTRL_C: u8 = 0x03;
 
+/// The server's console input. Boxed rather than a `ChildStdin` so that nothing here has to
+/// know a process is on the other end.
+pub type ConsoleWriter = Box<dyn AsyncWrite + Send + Unpin>;
+
 /// A handle to whichever server process is currently running.
 #[derive(Clone, Default)]
 pub struct Console {
-    target: Arc<Mutex<Option<ChildStdin>>>,
+    target: Arc<Mutex<Option<ConsoleWriter>>>,
 }
 
 impl std::fmt::Debug for Console {
@@ -51,8 +54,8 @@ impl Console {
     }
 
     /// Point the console at a newly spawned server.
-    pub async fn attach(&self, stdin: ChildStdin) {
-        *self.target.lock().await = Some(stdin);
+    pub async fn attach(&self, writer: ConsoleWriter) {
+        *self.target.lock().await = Some(writer);
     }
 
     /// Drop the pipe, so the server sees EOF on stdin.
@@ -137,76 +140,89 @@ mod tests {
         assert!(!console.send(SHUTDOWN_COMMAND).await);
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn commands_reach_the_attached_process() {
-        use std::os::unix::fs::PermissionsExt;
-        use std::process::Stdio;
+    /// An in-memory stand-in for the server's stdin, and what was written to it.
+    fn pipe() -> (ConsoleWriter, Arc<std::sync::Mutex<Vec<u8>>>) {
+        use std::pin::Pin;
+        use std::task::{Context, Poll};
 
-        let dir = tempfile::tempdir().unwrap();
-        let seen = dir.path().join("seen");
-        let script = dir.path().join("reader.sh");
-        std::fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\nwhile read line; do echo \"$line\" >> \"{}\"; done\n",
-                seen.display()
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        struct Sink(Arc<std::sync::Mutex<Vec<u8>>>);
 
-        let mut child = tokio::process::Command::new(&script)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap();
+        impl AsyncWrite for Sink {
+            fn poll_write(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+                buf: &[u8],
+            ) -> Poll<std::io::Result<usize>> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Poll::Ready(Ok(buf.len()))
+            }
 
-        let console = Console::new(false);
-        console.attach(child.stdin.take().unwrap()).await;
-        assert!(console.send(SHUTDOWN_COMMAND).await);
+            fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
 
-        // EOF ends the reader loop, so the child exits and flushes.
-        console.detach().await;
-        child.wait().await.unwrap();
-
-        assert_eq!(std::fs::read_to_string(&seen).unwrap().trim(), "shutdown");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_restart_rebinds_to_the_new_process() {
-        use std::os::unix::fs::PermissionsExt;
-        use std::process::Stdio;
-
-        let dir = tempfile::tempdir().unwrap();
-        let script = dir.path().join("reader.sh");
-        std::fs::write(
-            &script,
-            "#!/bin/sh\nwhile read line; do echo \"$line\" > \"$1\"; done\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-        let console = Console::new(false);
-        let mut outputs = Vec::new();
-
-        for cycle in 0..2 {
-            let seen = dir.path().join(format!("cycle{cycle}"));
-            let mut child = tokio::process::Command::new(&script)
-                .arg(&seen)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .spawn()
-                .unwrap();
-
-            console.attach(child.stdin.take().unwrap()).await;
-            assert!(console.send("hello").await, "cycle {cycle}");
-            console.detach().await;
-            child.wait().await.unwrap();
-            outputs.push(std::fs::read_to_string(&seen).unwrap().trim().to_string());
+            fn poll_shutdown(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+            ) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
         }
 
-        assert_eq!(outputs, ["hello", "hello"]);
+        let written = Arc::new(std::sync::Mutex::new(Vec::new()));
+        (Box::new(Sink(written.clone())), written)
+    }
+
+    fn text(written: &Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+        String::from_utf8(written.lock().unwrap().clone()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn commands_reach_the_attached_server() {
+        let (writer, written) = pipe();
+        let console = Console::new(false);
+
+        console.attach(writer).await;
+        assert!(console.send(SHUTDOWN_COMMAND).await);
+
+        // Newline-terminated, or the server's console reader never sees a complete line.
+        assert_eq!(text(&written), "shutdown\n");
+    }
+
+    #[tokio::test]
+    async fn a_restart_rebinds_to_the_new_server() {
+        let console = Console::new(false);
+        let (first, first_written) = pipe();
+        let (second, second_written) = pipe();
+
+        console.attach(first).await;
+        assert!(console.send("hello").await);
+        console.detach().await;
+
+        console.attach(second).await;
+        assert!(console.send("again").await);
+
+        assert_eq!(text(&first_written), "hello\n");
+        assert_eq!(
+            text(&second_written),
+            "again\n",
+            "the rebind must take effect"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_detached_console_reports_that_nothing_received_it() {
+        let (writer, written) = pipe();
+        let console = Console::new(false);
+
+        console.attach(writer).await;
+        console.detach().await;
+
+        assert!(!console.send(SHUTDOWN_COMMAND).await);
+        assert_eq!(
+            text(&written),
+            "",
+            "a detached server must not be written to"
+        );
     }
 }

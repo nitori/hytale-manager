@@ -15,22 +15,18 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone)]
 pub enum Checksum {
     Sha256(String),
-    /// The Hytale maven repository publishes only `.sha1`. Weak against forgery, but the
-    /// transport is HTTPS — this is here to catch truncation and bad resumes.
-    Sha1(String),
 }
 
 impl Checksum {
     pub fn expected(&self) -> &str {
         match self {
-            Self::Sha256(hex) | Self::Sha1(hex) => hex,
+            Self::Sha256(hex) => hex,
         }
     }
 
     async fn digest(&self, path: &Path) -> Result<String> {
         match self {
             Self::Sha256(_) => digest_file::<Sha256>(path).await,
-            Self::Sha1(_) => digest_file::<sha1::Sha1>(path).await,
         }
     }
 
@@ -60,8 +56,8 @@ impl ProgressReporter for NoProgress {
 /// Download `url` into `dest_dir`, resuming a partial transfer if one is present, and
 /// verify the result.
 ///
-/// `expected_size` is optional because maven does not publish one; it is used only to
-/// discard an oversized `.part` and as a progress fallback.
+/// `expected_size` is optional because the asset service's manifest carries no size; it is
+/// used only to discard an oversized `.part` and as a progress fallback.
 ///
 /// Returns the path to the verified file. If a verified copy is already present it is
 /// reused without touching the network.
@@ -107,9 +103,7 @@ pub async fn download_verified(
 
     // Without a known size a stale `.part` can exceed the file; the server then rejects the
     // range instead of serving it, so start over rather than failing the install.
-    let response = if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE
-        && have > 0
-    {
+    let response = if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && have > 0 {
         tracing::debug!("stale partial download for {name}; restarting");
         let _ = tokio::fs::remove_file(&part_path).await;
         have = 0;
@@ -214,6 +208,8 @@ mod tests {
         );
     }
 
+    /// More than one read buffer, and not a whole number of them, so a dropped tail or a
+    /// mishandled short read shows up rather than hiding behind an aligned size.
     #[tokio::test]
     async fn sha256_spans_multiple_read_buffers() {
         let dir = tempfile::tempdir().unwrap();
@@ -222,10 +218,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Zero-padded bytes must survive: a leading zero dropped by the hex encoder
-        // would only show up on a digest that happens to start with one.
-        let digest = digest_file::<Sha256>(&path).await.unwrap();
-        assert_eq!(digest.len(), 64);
+        assert_eq!(
+            digest_file::<Sha256>(&path).await.unwrap(),
+            "8cd66c0067f5824edbd967efc4f03d328c6a58727b96b37736e26638eba47fb0"
+        );
     }
 
     #[test]

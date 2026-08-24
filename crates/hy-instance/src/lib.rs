@@ -44,8 +44,8 @@ impl Instance {
         Self::load(layout)
     }
 
-    /// An uninitialised instance still has a usable layout, so `hy status` can describe a
-    /// bootstrap-made install before `hy init` runs.
+    /// An uninitialised instance still has a usable layout, so `hy status` can describe an
+    /// install before `hy init` runs.
     fn load(layout: Layout) -> Result<Self> {
         let config = Config::read(&layout.config())?.unwrap_or_default();
         Ok(Self { layout, config })

@@ -1,8 +1,8 @@
 mod commands;
 mod logging;
 mod printer;
-mod tui;
 mod progress;
+mod tui;
 
 use std::io::IsTerminal;
 use std::process::ExitCode;

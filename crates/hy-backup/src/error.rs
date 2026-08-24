@@ -5,9 +5,7 @@ pub enum Error {
     #[error("no backup with id `{0}`")]
     NotFound(String),
 
-    #[error(
-        "`{0}` is one of the server's own backups; restoring those is not supported yet"
-    )]
+    #[error("`{0}` is one of the server's own backups; restoring those is not supported yet")]
     UnsupportedOrigin(String),
 
     #[error("the server is running; stop it first, or pass --force to snapshot anyway")]

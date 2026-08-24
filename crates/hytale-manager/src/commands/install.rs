@@ -57,7 +57,7 @@ pub async fn install(args: InstallArgs, ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-/// Fetch, bootstrap, and authenticate a server into `instance`. Returns it reloaded.
+/// Authenticate, fetch, and unpack a server into `instance`. Returns it reloaded.
 pub async fn provision(
     instance: &Instance,
     version: Option<&str>,

@@ -2,8 +2,7 @@
 //!
 //! Recovered from the server's `OAuthClient`: a public client — there is no secret, and the
 //! token request carries only `client_id` — talking to an Ory Hydra deployment whose
-//! `/.well-known/openid-configuration` advertises the device endpoint. Driving it here
-//! replaces scraping the device code out of the jar's console output.
+//! `/.well-known/openid-configuration` advertises the device endpoint.
 
 use std::time::Duration;
 
@@ -190,11 +189,7 @@ impl DeviceFlow {
     ///
     /// `tick` is called before each wait so a caller can show a countdown; the flow itself
     /// prints nothing.
-    pub async fn wait(
-        &self,
-        auth: &DeviceAuth,
-        mut tick: impl FnMut(u64),
-    ) -> Result<Tokens> {
+    pub async fn wait(&self, auth: &DeviceAuth, mut tick: impl FnMut(u64)) -> Result<Tokens> {
         let deadline = Timestamp::now() + Duration::from_secs(auth.expires_in);
         let mut interval = Duration::from_secs(auth.interval.max(1));
 

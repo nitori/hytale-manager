@@ -1,9 +1,4 @@
-//! The Hytale maven repository.
-//!
-//! ```text
-//! https://maven.hytale.com/<patchline>/com/hypixel/hytale/Server/maven-metadata.xml
-//! https://maven.hytale.com/<patchline>/com/hypixel/hytale/Server/<v>/Server-<v>.jar
-//! ```
+//! The Hytale maven repository — the only place that says which versions exist.
 //!
 //! Only five versions are retained per patchline, so a pinned old version eventually 404s.
 
@@ -89,14 +84,6 @@ pub fn metadata_url(patchline: &str) -> String {
     format!("{BASE_URL}/{patchline}/{ARTIFACT_PATH}/maven-metadata.xml")
 }
 
-pub fn jar_url(patchline: &str, version: &str) -> String {
-    format!("{BASE_URL}/{patchline}/{ARTIFACT_PATH}/{version}/Server-{version}.jar")
-}
-
-pub fn sha1_url(patchline: &str, version: &str) -> String {
-    format!("{}.sha1", jar_url(patchline, version))
-}
-
 /// Order two versions, treating unparsable ones as equal so a format change degrades to
 /// "no opinion" rather than a wrong answer.
 pub fn compare(a: &str, b: &str) -> std::cmp::Ordering {
@@ -166,7 +153,10 @@ mod tests {
         let xml = RELEASE_XML
             .replace("0.5.9</latest>", "0.6.0-pre.13</latest>")
             .replace("0.5.9</release>", "0.6.0-pre.13</release>")
-            .replace("<version>0.5.5</version>", "<version>0.5.0-pre.9.2</version>");
+            .replace(
+                "<version>0.5.5</version>",
+                "<version>0.5.0-pre.9.2</version>",
+            );
         let metadata = parse(&xml).unwrap();
         assert_eq!(metadata.current(), Some("0.6.0-pre.13"));
         assert!(metadata.contains("0.5.0-pre.9.2"));
@@ -174,10 +164,6 @@ mod tests {
 
     #[test]
     fn urls_follow_the_maven_layout() {
-        assert_eq!(
-            jar_url("release", "0.5.9"),
-            "https://maven.hytale.com/release/com/hypixel/hytale/Server/0.5.9/Server-0.5.9.jar"
-        );
         assert_eq!(
             metadata_url("pre-release"),
             "https://maven.hytale.com/pre-release/com/hypixel/hytale/Server/maven-metadata.xml"
@@ -188,7 +174,10 @@ mod tests {
     fn select_defaults_to_the_current_release() {
         let metadata = parse(RELEASE_XML).unwrap();
         assert_eq!(select(&metadata, "release", None).unwrap(), "0.5.9");
-        assert_eq!(select(&metadata, "release", Some("0.5.7")).unwrap(), "0.5.7");
+        assert_eq!(
+            select(&metadata, "release", Some("0.5.7")).unwrap(),
+            "0.5.7"
+        );
     }
 
     #[test]
@@ -214,7 +203,10 @@ mod tests {
     #[test]
     fn an_unrecognised_version_format_yields_no_opinion() {
         // The manual's stale example used a date; a format change must not invert order.
-        assert_eq!(compare("2026.01.22-6f8bd", "0.5.9"), std::cmp::Ordering::Equal);
+        assert_eq!(
+            compare("2026.01.22-6f8bd", "0.5.9"),
+            std::cmp::Ordering::Equal
+        );
     }
 
     #[test]

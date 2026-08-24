@@ -1,5 +1,5 @@
 //! Reading and writing a Hytale server's `auth.enc` credential store natively, so `hy`
-//! can install and refresh an authenticated server without running the jar's bootstrap.
+//! can install and refresh an authenticated server without ever running the jar.
 //!
 //! The file format is not ours: it is fixed by the server's `EncryptedAuthCredentialStore`,
 //! recovered from `HytaleServer.jar`. See [`store`] for the constants and why each is what

@@ -110,7 +110,10 @@ mod tests {
     fn an_untouched_instance_is_on_the_first_lineage() {
         let history = History::default();
         assert_eq!(history.current(), INITIAL_LINEAGE);
-        assert_eq!(history.lineage_at(at("2026-08-22T12:00:00Z")), INITIAL_LINEAGE);
+        assert_eq!(
+            history.lineage_at(at("2026-08-22T12:00:00Z")),
+            INITIAL_LINEAGE
+        );
     }
 
     #[test]

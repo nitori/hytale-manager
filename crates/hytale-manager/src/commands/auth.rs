@@ -1,8 +1,7 @@
 //! `hy auth` — authenticate an instance without running the server.
 //!
-//! The device grant is driven directly rather than by typing `/auth login device` at the
-//! jar and reading the code back out of its console, so nothing here depends on the
-//! server's log wording. What lands on disk is the same `auth.enc` the jar writes.
+//! The device grant is driven against the OAuth endpoints directly, so nothing here depends
+//! on the jar's console wording. What lands on disk is the same `auth.enc` the jar writes.
 
 use anyhow::{Context as _, Result, bail};
 use hy_auth::{CredentialStore, Credentials, DeviceFlow};
@@ -20,14 +19,10 @@ pub async fn auth(args: AuthArgs, ctx: &Context) -> Result<()> {
 ///
 /// Shared with `hy install`, which needs the same guarantee before it can fetch a payload.
 /// Returns whether an authorisation actually happened.
-pub async fn ensure(
-    instance: &hy_instance::Instance,
-    force: bool,
-    ctx: &Context,
-) -> Result<bool> {
+pub async fn ensure(instance: &hy_instance::Instance, force: bool, ctx: &Context) -> Result<bool> {
     let server_dir = instance.layout().server_dir();
-    // A fresh instance has no `Server/` until the payload is extracted, but credentials are
-    // wanted before that: the store is what lets the bootstrap skip its own device flow.
+    // A fresh instance has no `Server/` until the payload is extracted, but the payload
+    // request is itself authenticated — so the store has to exist before it.
     std::fs::create_dir_all(&server_dir)
         .with_context(|| format!("creating {}", server_dir.display()))?;
     let store = CredentialStore::new(&server_dir);
@@ -63,10 +58,8 @@ pub async fn ensure(
 
     ctx.printer
         .event(format!("Authenticated as {}", profile.bold()));
-    ctx.printer.detail(format!(
-        "credentials in {}",
-        store.path().display()
-    ));
+    ctx.printer
+        .detail(format!("credentials in {}", store.path().display()));
     Ok(true)
 }
 
@@ -85,8 +78,10 @@ async fn authenticate(ctx: &Context) -> Result<Credentials> {
     ctx.printer.event("Authenticating".bold().to_string());
     ctx.printer
         .event(format!("  Open:        {}", device.verification_uri.cyan()));
-    ctx.printer
-        .event(format!("  Enter code:  {}", device.user_code.bold().green()));
+    ctx.printer.event(format!(
+        "  Enter code:  {}",
+        device.user_code.bold().green()
+    ));
     if device.verification_uri_complete.is_some() {
         ctx.printer
             .event(format!("  Or open:     {}", device.best_link().cyan()));
@@ -97,8 +92,9 @@ async fn authenticate(ctx: &Context) -> Result<Credentials> {
     let tokens = flow
         .wait(&device, |remaining| {
             if ticks.is_multiple_of(4) {
-                ctx.printer
-                    .detail(format!("waiting for authorisation ({remaining}s to complete)"));
+                ctx.printer.detail(format!(
+                    "waiting for authorisation ({remaining}s to complete)"
+                ));
             }
             ticks += 1;
         })

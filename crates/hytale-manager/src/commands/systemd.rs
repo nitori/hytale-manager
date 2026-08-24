@@ -97,8 +97,7 @@ fn render(unit: &Unit) -> String {
         String::new(),
         // Not a comment for its own sake: the default control-group kill would send the
         // JVM its own SIGTERM, and hy's whole shutdown path assumes it owns that timing.
-        "# hy asks the server to save and waits for it; only hy should be signalled."
-            .to_string(),
+        "# hy asks the server to save and waits for it; only hy should be signalled.".to_string(),
         "KillMode=mixed".to_string(),
         "TimeoutStopSec=120".to_string(),
         String::new(),
@@ -153,7 +152,13 @@ fn unit_name(given: Option<&str>, output: Option<&Path>, root: &Path) -> String 
 
     let sanitised: String = stem
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || ":-_.".contains(c) { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || ":-_.".contains(c) {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     format!("{sanitised}.service")
 }
@@ -168,7 +173,8 @@ fn advise(ctx: &Context, name: &str, scope: Scope, wrote_file: bool, user: Optio
     };
 
     if wrote_file {
-        ctx.printer.detail(format!("move it to {dir}/{name}, then:"));
+        ctx.printer
+            .detail(format!("move it to {dir}/{name}, then:"));
     } else {
         ctx.printer
             .detail(format!("redirect this into {dir}/{name}, then:"));
@@ -315,7 +321,11 @@ mod tests {
     #[test]
     fn the_output_file_names_the_unit() {
         assert_eq!(
-            unit_name(None, Some(Path::new("/tmp/hytale.service")), Path::new("/srv/main")),
+            unit_name(
+                None,
+                Some(Path::new("/tmp/hytale.service")),
+                Path::new("/srv/main")
+            ),
             "hytale.service"
         );
     }
@@ -323,7 +333,11 @@ mod tests {
     #[test]
     fn an_explicit_name_still_wins_over_the_output_file() {
         assert_eq!(
-            unit_name(Some("web"), Some(Path::new("/tmp/hytale")), Path::new("/srv")),
+            unit_name(
+                Some("web"),
+                Some(Path::new("/tmp/hytale")),
+                Path::new("/srv")
+            ),
             "web.service"
         );
     }

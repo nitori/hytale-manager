@@ -240,7 +240,10 @@ mod tests {
     fn scrollback_is_bounded() {
         let console = with_lines(SCROLLBACK + 100);
         assert_eq!(console.lines().len(), SCROLLBACK);
-        assert_eq!(console.lines().back().unwrap(), &format!("line {}", SCROLLBACK + 99));
+        assert_eq!(
+            console.lines().back().unwrap(),
+            &format!("line {}", SCROLLBACK + 99)
+        );
     }
 
     #[test]
@@ -361,7 +364,11 @@ mod tests {
         assert_eq!(console.horizontal(), 24);
 
         console.scroll_left(8);
-        assert_eq!(console.horizontal(), 16, "one press should move one step back");
+        assert_eq!(
+            console.horizontal(),
+            16,
+            "one press should move one step back"
+        );
     }
 
     #[test]

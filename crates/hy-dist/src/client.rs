@@ -1,7 +1,3 @@
-use std::path::{Path, PathBuf};
-
-use hy_java::{Checksum, ProgressReporter, download::download_verified};
-
 use crate::error::{Error, Result};
 use crate::maven::{self, Metadata};
 
@@ -44,42 +40,6 @@ impl DistClient {
             patchline: patchline.to_string(),
             source,
         })
-    }
-
-    /// Download the server jar, verified against the published `.sha1`.
-    pub async fn download_jar(
-        &self,
-        patchline: &str,
-        version: &str,
-        dest_dir: &Path,
-        progress: &dyn ProgressReporter,
-    ) -> Result<PathBuf> {
-        validate_patchline(patchline)?;
-
-        let sha1 = self
-            .http
-            .get(maven::sha1_url(patchline, version))
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
-
-        // Maven checksum files are either a bare digest or `<digest>  <filename>`.
-        let digest = sha1.split_whitespace().next().unwrap_or_default().to_string();
-
-        let name = format!("Server-{version}.jar");
-        let path = download_verified(
-            &self.http,
-            &maven::jar_url(patchline, version),
-            &name,
-            &Checksum::Sha1(digest),
-            None,
-            dest_dir,
-            progress,
-        )
-        .await?;
-        Ok(path)
     }
 }
 

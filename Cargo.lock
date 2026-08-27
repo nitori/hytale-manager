@@ -1102,7 +1102,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hy-auth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aes-gcm",
  "jiff",
@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "hy-backup"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "flate2",
  "hy-instance",
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "hy-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1143,7 +1143,7 @@ dependencies = [
 
 [[package]]
 name = "hy-dist"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hy-fetch",
  "quick-xml",
@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "hy-fetch"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "etcetera",
  "futures-util",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "hy-instance"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "tempfile",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "hy-java"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "flate2",
  "fs4",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "hy-run"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "crossterm",
  "fs4",
@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "hytale-manager"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ansi-to-tui",
  "anstream",

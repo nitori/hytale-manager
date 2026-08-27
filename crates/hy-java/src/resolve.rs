@@ -479,6 +479,24 @@ mod tests {
         Resolver::new(Store::new(PathBuf::from("/nonexistent"))).unwrap()
     }
 
+    fn options(downloads: DownloadPolicy, offline: bool, explicit_install: bool) -> ResolveOptions {
+        ResolveOptions {
+            downloads,
+            offline,
+            explicit_install,
+        }
+    }
+
+    fn system(version: &str) -> SystemJava {
+        SystemJava {
+            home: PathBuf::from(format!("/usr/lib/jvm/java-{version}")),
+            executable: PathBuf::from(format!("/usr/lib/jvm/java-{version}/bin/java")),
+            version: version.parse().unwrap(),
+            distribution: Some(JavaDistribution::Temurin),
+            vendor: Some("Eclipse Adoptium".to_string()),
+        }
+    }
+
     #[test]
     fn open_bound_prefers_lts_over_newer_ga() {
         let r = resolver();
@@ -541,5 +559,142 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, Error::PinConflict { .. }));
+    }
+
+    /// A pin naming a range rather than a version is allowed through deliberately: it
+    /// cannot be *proven* to conflict, and refusing it would reject `.java-version` files
+    /// that are perfectly workable.
+    #[test]
+    fn a_range_pin_is_never_treated_as_a_conflict() {
+        assert!(pin_satisfies(&req(">=21"), &req(">=25")));
+        assert!(pin_satisfies(&req("lts"), &req(">=25")));
+        assert!(pin_satisfies(&req("latest"), &req("25")));
+    }
+
+    /// The asymmetry the module header describes, in one place: the LTS preference governs
+    /// what we *install*, not what we *accept*. An already-present 26 satisfies `>=25`, but
+    /// resolving `>=25` from scratch still fetches 25.
+    #[test]
+    fn a_newer_release_is_accepted_even_though_it_would_not_be_installed() {
+        let installed: JavaVersion = "26.0.1+9".parse().unwrap();
+        assert!(req(">=25").matches(JavaDistribution::Temurin, &installed));
+        assert_eq!(resolver().feature_version(&req(">=25"), &available()), 25);
+    }
+
+    #[test]
+    fn an_unconstrained_request_installs_the_newest_lts() {
+        assert_eq!(
+            resolver().feature_version(&VersionRequest::any(), &available()),
+            25
+        );
+    }
+
+    #[test]
+    fn offline_blocks_a_download_whatever_the_policy_says() {
+        let r = resolver();
+        assert_eq!(
+            r.download_blocked(options(DownloadPolicy::Automatic, true, false)),
+            Some("--offline")
+        );
+        // Even an explicit `hy java install` cannot download offline.
+        assert_eq!(
+            r.download_blocked(options(DownloadPolicy::Automatic, true, true)),
+            Some("--offline")
+        );
+    }
+
+    /// The reason is shown to the operator verbatim, so it has to name the setting that
+    /// actually caused the refusal.
+    #[test]
+    fn a_blocked_download_names_the_setting_responsible() {
+        let r = resolver();
+        assert_eq!(
+            r.download_blocked(options(DownloadPolicy::Never, false, false)),
+            Some("--no-java-download")
+        );
+        assert_eq!(
+            r.download_blocked(options(DownloadPolicy::Manual, false, false)),
+            Some("java-downloads = \"manual\"")
+        );
+    }
+
+    #[test]
+    fn the_manual_policy_yields_only_to_an_explicit_install() {
+        let r = resolver();
+        assert_eq!(
+            r.download_blocked(options(DownloadPolicy::Manual, false, true)),
+            None
+        );
+        assert_eq!(
+            r.download_blocked(options(DownloadPolicy::Automatic, false, false)),
+            None
+        );
+    }
+
+    #[test]
+    fn an_lts_outranks_a_newer_non_lts_among_system_candidates() {
+        let picked = pick_system(
+            &req(">=25").spec,
+            vec![system("26.0.1+9"), system("25.0.4+7")],
+        )
+        .unwrap();
+        assert_eq!(picked.version.major(), 25);
+    }
+
+    /// Preferring an older LTS here would invert what `latest` asked for.
+    #[test]
+    fn latest_suppresses_the_lts_preference() {
+        let picked = pick_system(
+            &req("latest").spec,
+            vec![system("25.0.4+7"), system("26.0.1+9")],
+        )
+        .unwrap();
+        assert_eq!(picked.version.major(), 26);
+    }
+
+    #[test]
+    fn the_newest_wins_among_equally_supported_candidates() {
+        let picked = pick_system(
+            &req(">=17").spec,
+            vec![system("17.0.9+9"), system("25.0.4+7"), system("21.0.4+7")],
+        )
+        .unwrap();
+        assert_eq!(picked.version.major(), 25);
+    }
+
+    /// `latest` and `lts` name a moving target only the registry can define, so offline they
+    /// stay uninterpreted rather than being silently pinned to whatever is installed.
+    #[tokio::test]
+    async fn offline_leaves_a_moving_target_uninterpreted() {
+        let request = req("latest");
+        let concretised = resolver()
+            .concretise(&request, options(DownloadPolicy::Automatic, true, false))
+            .await;
+        assert_eq!(concretised, request);
+    }
+
+    /// A request that already names a version is returned untouched — note this reaches the
+    /// early return, so no network call is made even with `offline` unset.
+    #[tokio::test]
+    async fn a_concrete_request_is_not_sent_to_the_registry() {
+        let request = req(">=25");
+        let concretised = resolver()
+            .concretise(&request, options(DownloadPolicy::Automatic, false, false))
+            .await;
+        assert_eq!(concretised, request);
+    }
+
+    /// Pins move between machines, so the string must carry no OS or architecture.
+    #[test]
+    fn the_pin_string_is_portable() {
+        let resolved = ResolvedJava {
+            home: PathBuf::from("/opt/jdk"),
+            executable: PathBuf::from("/opt/jdk/bin/java"),
+            version: "25.0.4.1+1".parse().unwrap(),
+            distribution: Some(JavaDistribution::Temurin),
+            source: JavaSource::System { vendor: None },
+            rejected: Vec::new(),
+        };
+        assert_eq!(pin_for(&resolved), "temurin-25.0.4.1+1");
     }
 }

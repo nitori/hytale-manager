@@ -1,13 +1,9 @@
 name: test
 
-# Every push, because work lands on master directly here — a pull-request-only trigger meant
-# nothing on master was ever tested. Also called by release.yml, so a tag cannot publish
-# something that was never tested.
+# Pull requests only: master is protected, so everything reaches it through one. A branch
+# with no pull request is someone's work in progress and not worth the minutes. Also called
+# by release.yml, so a tag cannot publish something that was never tested.
 on:
-  push:
-    # Branches only. A tag reaches these tests through release.yml, which gates the build on
-    # them; triggering here as well would run them twice for every release.
-    branches: ["**"]
   pull_request:
   workflow_call:
 

@@ -2,7 +2,7 @@
 
 use std::sync::Mutex;
 
-use hy_java::ProgressReporter;
+use hy_fetch::ProgressReporter;
 use indicatif::{ProgressBar, ProgressStyle};
 
 pub struct BarReporter {

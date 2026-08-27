@@ -121,7 +121,7 @@ pub async fn provision(
         .event("Downloading the server payload — this takes a while".to_string());
     let reporter = BarReporter::new(ctx.progress);
     let archive = assets
-        .download(&published, &cache_dir()?, &reporter)
+        .download(&published, &hy_fetch::cache_dir(&hy_fetch::home()?), &reporter)
         .await
         .with_context(|| format!("could not download server {}", published.version))?;
 
@@ -194,10 +194,6 @@ fn stamp_version(instance: &Instance, version: &str, patchline: &str, ctx: &Cont
     ctx.printer
         .detail(format!("recorded version {version} ({patchline})"));
     Ok(())
-}
-
-fn cache_dir() -> Result<std::path::PathBuf> {
-    Ok(hy_java::Store::from_env()?.cache_dir())
 }
 
 /// Whether the device-code prompt could actually be answered.

@@ -13,13 +13,13 @@ pub fn render(frame: &mut Frame, shared: &Shared) {
     let [output, input] =
         Layout::vertical([Constraint::Min(1), Constraint::Length(3)]).areas(frame.area());
 
-    let mut console = shared.console();
+    let mut scrollback = shared.scrollback();
     let height = output.height.saturating_sub(2) as usize;
     let width = output.width.saturating_sub(2) as usize;
-    console.set_viewport(height);
+    scrollback.set_viewport(height);
 
-    // Taken by value so the borrow of the console ends before the clamp below.
-    let visible: Vec<String> = console.visible(height).cloned().collect();
+    // Taken by value so the borrow of the scrollback ends before the clamp below.
+    let visible: Vec<String> = scrollback.visible(height).cloned().collect();
     let lines: Vec<Line> = visible
         .iter()
         .map(|line| {
@@ -34,16 +34,16 @@ pub fn render(frame: &mut Frame, shared: &Shared) {
     // Long lines are cropped rather than wrapped, so the offset is bounded by the widest
     // line actually on screen — scrolling into empty space would just look broken.
     let longest = lines.iter().map(Line::width).max().unwrap_or(0);
-    console.clamp_horizontal(longest.saturating_sub(width));
-    let horizontal = console.horizontal();
+    scrollback.clamp_horizontal(longest.saturating_sub(width));
+    let horizontal = scrollback.horizontal();
 
     // Where the view is parked, or — when it is not parked at all — how to move it. Saying
     // nothing would leave a paused pane looking like a hung server.
-    let parked = !console.is_pinned_to_tail() || horizontal > 0;
+    let parked = !scrollback.is_pinned_to_tail() || horizontal > 0;
     let title = if parked {
         let mut title = String::from(" server —");
-        if !console.is_pinned_to_tail() {
-            title.push_str(&format!(" back {} lines", console.scroll()));
+        if !scrollback.is_pinned_to_tail() {
+            title.push_str(&format!(" back {} lines", scrollback.scroll()));
         }
         if horizontal > 0 {
             title.push_str(&format!(" +{horizontal} cols"));
@@ -71,7 +71,7 @@ pub fn render(frame: &mut Frame, shared: &Shared) {
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(prompt, Style::default().fg(Color::Cyan)),
-            Span::raw(console.input()),
+            Span::raw(scrollback.input()),
         ]))
         .block(
             Block::default()
@@ -83,7 +83,7 @@ pub fn render(frame: &mut Frame, shared: &Shared) {
 
     // Inside the border, past the prompt, at the character the cursor is on.
     frame.set_cursor_position(Position::new(
-        input.x + 1 + prompt.len() as u16 + console.cursor() as u16,
+        input.x + 1 + prompt.len() as u16 + scrollback.cursor() as u16,
         input.y + 1,
     ));
 }

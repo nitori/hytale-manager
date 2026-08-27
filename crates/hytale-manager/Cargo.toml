@@ -16,6 +16,7 @@ hy-auth = { workspace = true }
 hy-backup = { workspace = true }
 hy-cli = { workspace = true }
 hy-dist = { workspace = true }
+hy-fetch = { workspace = true }
 hy-instance = { workspace = true }
 hy-java = { workspace = true }
 hy-run = { workspace = true }

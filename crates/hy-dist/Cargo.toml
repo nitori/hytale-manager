@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-hy-java = { workspace = true }
+hy-fetch = { workspace = true }
 
 quick-xml = { workspace = true }
 reqwest = { workspace = true }

@@ -25,13 +25,6 @@ pub enum Error {
     #[error("`{0}` is not a usable Java installation")]
     NotAJavaHome(PathBuf),
 
-    #[error("checksum mismatch for {name}: expected {expected}, got {actual}")]
-    ChecksumMismatch {
-        name: String,
-        expected: String,
-        actual: String,
-    },
-
     #[error("the archive for {0} did not contain a single top-level directory")]
     UnexpectedArchiveLayout(String),
 
@@ -52,6 +45,9 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+
+    #[error(transparent)]
+    Fetch(#[from] hy_fetch::Error),
 
     #[error(transparent)]
     Http(#[from] reqwest::Error),

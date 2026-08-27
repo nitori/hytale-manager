@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use hy_cli::SelfUpdateArgs;
+use hy_fetch::{Checksum, Digester};
 use semver::Version;
-use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
 use crate::commands::Context;
@@ -99,14 +99,17 @@ async fn install(
     })?;
 
     let sums = fetch_text(http, &format!("{base}/SHA256SUMS")).await?;
-    let expected = expected_digest(&sums, asset)?;
+    let expected = Checksum::Sha256(expected_digest(&sums, asset)?.to_owned());
 
     ctx.printer.detail(format!("{base}/{asset}"));
     let actual = download(http, &format!("{base}/{asset}"), &mut file).await?;
     drop(file);
 
-    if !actual.eq_ignore_ascii_case(expected) {
-        bail!("checksum mismatch for {asset}: expected {expected}, got {actual}");
+    if !expected.matches(&actual) {
+        bail!(
+            "checksum mismatch for {asset}: expected {}, got {actual}",
+            expected.expected()
+        );
     }
 
     make_executable(staged)?;
@@ -164,13 +167,13 @@ async fn download(http: &reqwest::Client, url: &str, file: &mut tokio::fs::File)
         .error_for_status()
         .with_context(|| format!("fetching {url}"))?;
 
-    let mut hasher = Sha256::new();
+    let mut digester = Digester::sha256();
     while let Some(chunk) = response.chunk().await? {
-        hasher.update(&chunk);
+        digester.update(&chunk);
         file.write_all(&chunk).await?;
     }
     file.sync_all().await?;
-    Ok(hex(&hasher.finalize()))
+    Ok(digester.finish())
 }
 
 #[cfg(unix)]
@@ -183,14 +186,6 @@ fn make_executable(path: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn make_executable(_path: &Path) -> Result<()> {
     Ok(())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    bytes.iter().fold(String::new(), |mut out, byte| {
-        let _ = write!(out, "{byte:02x}");
-        out
-    })
 }
 
 #[cfg(test)]

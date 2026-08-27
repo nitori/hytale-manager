@@ -24,7 +24,7 @@ pub enum Error {
     Http(#[from] reqwest::Error),
 
     #[error(transparent)]
-    Download(#[from] hy_java::Error),
+    Download(#[from] hy_fetch::Error),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),

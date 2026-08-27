@@ -13,7 +13,7 @@ pub const SCROLLBACK: usize = 5_000;
 const HISTORY: usize = 200;
 
 #[derive(Debug, Default)]
-pub struct Console {
+pub struct Scrollback {
     lines: VecDeque<String>,
     /// Lines scrolled up from the bottom. Zero means pinned to the newest output.
     scroll: usize,
@@ -30,7 +30,7 @@ pub struct Console {
     recalled: Option<usize>,
 }
 
-impl Console {
+impl Scrollback {
     pub fn push(&mut self, line: String) {
         if self.lines.len() == SCROLLBACK {
             self.lines.pop_front();
@@ -45,7 +45,7 @@ impl Console {
         }
     }
 
-    /// Only the tests need the whole buffer; the UI draws through [`Console::visible`].
+    /// Only the tests need the whole buffer; the UI draws through [`Scrollback::visible`].
     #[cfg(test)]
     pub fn lines(&self) -> &VecDeque<String> {
         &self.lines
@@ -228,48 +228,48 @@ impl Console {
 mod tests {
     use super::*;
 
-    fn with_lines(count: usize) -> Console {
-        let mut console = Console::default();
+    fn with_lines(count: usize) -> Scrollback {
+        let mut scrollback = Scrollback::default();
         for n in 0..count {
-            console.push(format!("line {n}"));
+            scrollback.push(format!("line {n}"));
         }
-        console
+        scrollback
     }
 
     #[test]
     fn scrollback_is_bounded() {
-        let console = with_lines(SCROLLBACK + 100);
-        assert_eq!(console.lines().len(), SCROLLBACK);
+        let scrollback = with_lines(SCROLLBACK + 100);
+        assert_eq!(scrollback.lines().len(), SCROLLBACK);
         assert_eq!(
-            console.lines().back().unwrap(),
+            scrollback.lines().back().unwrap(),
             &format!("line {}", SCROLLBACK + 99)
         );
     }
 
     #[test]
     fn the_view_shows_the_newest_lines_by_default() {
-        let console = with_lines(100);
-        let visible: Vec<&String> = console.visible(3).collect();
+        let scrollback = with_lines(100);
+        let visible: Vec<&String> = scrollback.visible(3).collect();
         assert_eq!(visible, ["line 97", "line 98", "line 99"]);
     }
 
     #[test]
     fn scrolling_up_moves_back_through_history() {
-        let mut console = with_lines(100);
-        console.scroll_up(10, 3);
-        let visible: Vec<&String> = console.visible(3).collect();
+        let mut scrollback = with_lines(100);
+        scrollback.scroll_up(10, 3);
+        let visible: Vec<&String> = scrollback.visible(3).collect();
         assert_eq!(visible, ["line 87", "line 88", "line 89"]);
-        assert!(!console.is_pinned_to_tail());
+        assert!(!scrollback.is_pinned_to_tail());
 
-        console.scroll_to_tail();
-        assert!(console.is_pinned_to_tail());
+        scrollback.scroll_to_tail();
+        assert!(scrollback.is_pinned_to_tail());
     }
 
     #[test]
     fn scrolling_cannot_pass_the_oldest_line() {
-        let mut console = with_lines(10);
-        console.scroll_up(1000, 4);
-        let visible: Vec<&String> = console.visible(4).collect();
+        let mut scrollback = with_lines(10);
+        scrollback.scroll_up(1000, 4);
+        let visible: Vec<&String> = scrollback.visible(4).collect();
         assert_eq!(visible, ["line 0", "line 1", "line 2", "line 3"]);
     }
 
@@ -277,53 +277,53 @@ mod tests {
     /// the buffer is still filling, and once it has started trimming from the front.
     #[test]
     fn a_scrolled_view_does_not_drift_as_output_arrives() {
-        let mut console = with_lines(100);
-        console.scroll_up(10, 3);
-        let before: Vec<String> = console.visible(3).cloned().collect();
+        let mut scrollback = with_lines(100);
+        scrollback.scroll_up(10, 3);
+        let before: Vec<String> = scrollback.visible(3).cloned().collect();
 
         for n in 0..5 {
-            console.push(format!("new {n}"));
+            scrollback.push(format!("new {n}"));
         }
-        assert_eq!(console.visible(3).cloned().collect::<Vec<_>>(), before);
+        assert_eq!(scrollback.visible(3).cloned().collect::<Vec<_>>(), before);
     }
 
     #[test]
     fn a_scrolled_view_does_not_drift_once_the_buffer_is_trimming() {
-        let mut console = with_lines(SCROLLBACK);
-        console.scroll_up(10, 3);
-        let before: Vec<String> = console.visible(3).cloned().collect();
+        let mut scrollback = with_lines(SCROLLBACK);
+        scrollback.scroll_up(10, 3);
+        let before: Vec<String> = scrollback.visible(3).cloned().collect();
 
         for n in 0..5 {
-            console.push(format!("new {n}"));
+            scrollback.push(format!("new {n}"));
         }
-        assert_eq!(console.visible(3).cloned().collect::<Vec<_>>(), before);
+        assert_eq!(scrollback.visible(3).cloned().collect::<Vec<_>>(), before);
     }
 
     #[test]
     fn a_page_key_moves_a_page_of_the_pane_actually_drawn() {
-        let mut console = with_lines(100);
-        console.set_viewport(20);
+        let mut scrollback = with_lines(100);
+        scrollback.set_viewport(20);
 
-        console.page_up();
+        scrollback.page_up();
         // One line of overlap, so nothing is skipped between screens.
-        assert_eq!(console.scroll(), 19);
-        console.page_up();
-        assert_eq!(console.scroll(), 38);
+        assert_eq!(scrollback.scroll(), 19);
+        scrollback.page_up();
+        assert_eq!(scrollback.scroll(), 38);
 
-        console.page_down();
-        assert_eq!(console.scroll(), 19);
+        scrollback.page_down();
+        assert_eq!(scrollback.scroll(), 19);
     }
 
     #[test]
     fn paging_stops_at_the_oldest_line() {
-        let mut console = with_lines(30);
-        console.set_viewport(20);
+        let mut scrollback = with_lines(30);
+        scrollback.set_viewport(20);
         for _ in 0..10 {
-            console.page_up();
+            scrollback.page_up();
         }
         // The furthest back is the oldest line at the top of a full pane.
-        assert_eq!(console.scroll(), 10);
-        let visible: Vec<&String> = console.visible(20).collect();
+        assert_eq!(scrollback.scroll(), 10);
+        let visible: Vec<&String> = scrollback.visible(20).collect();
         assert_eq!(visible.first().unwrap().as_str(), "line 0");
     }
 
@@ -331,41 +331,41 @@ mod tests {
     /// sane rather than divide the view by zero.
     #[test]
     fn paging_without_a_viewport_still_moves() {
-        let mut console = with_lines(100);
-        console.page_up();
-        assert_eq!(console.scroll(), 1);
+        let mut scrollback = with_lines(100);
+        scrollback.page_up();
+        assert_eq!(scrollback.scroll(), 1);
     }
 
     #[test]
     fn horizontal_scrolling_moves_and_clamps() {
-        let mut console = with_lines(10);
-        assert_eq!(console.horizontal(), 0);
+        let mut scrollback = with_lines(10);
+        assert_eq!(scrollback.horizontal(), 0);
 
-        console.scroll_right(8);
-        console.scroll_right(8);
-        assert_eq!(console.horizontal(), 16);
+        scrollback.scroll_right(8);
+        scrollback.scroll_right(8);
+        assert_eq!(scrollback.horizontal(), 16);
 
-        console.scroll_left(8);
-        assert_eq!(console.horizontal(), 8);
+        scrollback.scroll_left(8);
+        assert_eq!(scrollback.horizontal(), 8);
 
         // Never past the left margin, however many times it is pressed.
-        console.scroll_left(1000);
-        assert_eq!(console.horizontal(), 0);
+        scrollback.scroll_left(1000);
+        assert_eq!(scrollback.horizontal(), 0);
     }
 
     /// Scrolling far past the widest line must not need as many presses to undo.
     #[test]
     fn clamping_pulls_the_offset_back_to_the_content() {
-        let mut console = with_lines(10);
+        let mut scrollback = with_lines(10);
         for _ in 0..50 {
-            console.scroll_right(8);
+            scrollback.scroll_right(8);
         }
-        console.clamp_horizontal(24);
-        assert_eq!(console.horizontal(), 24);
+        scrollback.clamp_horizontal(24);
+        assert_eq!(scrollback.horizontal(), 24);
 
-        console.scroll_left(8);
+        scrollback.scroll_left(8);
         assert_eq!(
-            console.horizontal(),
+            scrollback.horizontal(),
             16,
             "one press should move one step back"
         );
@@ -373,93 +373,93 @@ mod tests {
 
     #[test]
     fn esc_resets_both_axes() {
-        let mut console = with_lines(100);
-        console.scroll_up(10, 3);
-        console.scroll_right(16);
+        let mut scrollback = with_lines(100);
+        scrollback.scroll_up(10, 3);
+        scrollback.scroll_right(16);
 
-        console.scroll_to_tail();
-        assert!(console.is_pinned_to_tail());
-        assert_eq!(console.horizontal(), 0);
+        scrollback.scroll_to_tail();
+        assert!(scrollback.is_pinned_to_tail());
+        assert_eq!(scrollback.horizontal(), 0);
     }
 
     #[test]
     fn following_the_tail_keeps_showing_new_output() {
-        let mut console = with_lines(100);
-        assert!(console.is_pinned_to_tail());
-        console.push("newest".to_string());
+        let mut scrollback = with_lines(100);
+        assert!(scrollback.is_pinned_to_tail());
+        scrollback.push("newest".to_string());
 
-        let visible: Vec<&String> = console.visible(3).collect();
+        let visible: Vec<&String> = scrollback.visible(3).collect();
         assert_eq!(visible.last().unwrap().as_str(), "newest");
     }
 
     #[test]
     fn typing_and_editing_respects_character_boundaries() {
-        let mut console = Console::default();
+        let mut scrollback = Scrollback::default();
         for c in "héllo".chars() {
-            console.insert(c);
+            scrollback.insert(c);
         }
-        assert_eq!(console.input(), "héllo");
+        assert_eq!(scrollback.input(), "héllo");
 
-        console.move_home();
-        console.move_right();
-        console.delete();
+        scrollback.move_home();
+        scrollback.move_right();
+        scrollback.delete();
         // The multi-byte char must be removed whole, not split.
-        assert_eq!(console.input(), "hllo");
+        assert_eq!(scrollback.input(), "hllo");
 
-        console.move_end();
-        console.backspace();
-        assert_eq!(console.input(), "hll");
+        scrollback.move_end();
+        scrollback.backspace();
+        assert_eq!(scrollback.input(), "hll");
     }
 
     #[test]
     fn submitting_clears_the_box_and_ignores_blank_lines() {
-        let mut console = Console::default();
+        let mut scrollback = Scrollback::default();
         for c in "  shutdown  ".chars() {
-            console.insert(c);
+            scrollback.insert(c);
         }
-        assert_eq!(console.submit().as_deref(), Some("shutdown"));
-        assert_eq!(console.input(), "");
-        assert_eq!(console.cursor(), 0);
+        assert_eq!(scrollback.submit().as_deref(), Some("shutdown"));
+        assert_eq!(scrollback.input(), "");
+        assert_eq!(scrollback.cursor(), 0);
 
         for c in "   ".chars() {
-            console.insert(c);
+            scrollback.insert(c);
         }
-        assert_eq!(console.submit(), None);
+        assert_eq!(scrollback.submit(), None);
     }
 
     #[test]
     fn history_walks_back_and_forward() {
-        let mut console = Console::default();
+        let mut scrollback = Scrollback::default();
         for command in ["help", "shutdown"] {
             for c in command.chars() {
-                console.insert(c);
+                scrollback.insert(c);
             }
-            console.submit();
+            scrollback.submit();
         }
 
-        console.recall_previous();
-        assert_eq!(console.input(), "shutdown");
-        console.recall_previous();
-        assert_eq!(console.input(), "help");
-        console.recall_next();
-        assert_eq!(console.input(), "shutdown");
+        scrollback.recall_previous();
+        assert_eq!(scrollback.input(), "shutdown");
+        scrollback.recall_previous();
+        assert_eq!(scrollback.input(), "help");
+        scrollback.recall_next();
+        assert_eq!(scrollback.input(), "shutdown");
         // Past the newest is the empty line being composed.
-        console.recall_next();
-        assert_eq!(console.input(), "");
+        scrollback.recall_next();
+        assert_eq!(scrollback.input(), "");
     }
 
     #[test]
     fn repeating_a_command_does_not_duplicate_history() {
-        let mut console = Console::default();
+        let mut scrollback = Scrollback::default();
         for _ in 0..3 {
             for c in "help".chars() {
-                console.insert(c);
+                scrollback.insert(c);
             }
-            console.submit();
+            scrollback.submit();
         }
-        console.recall_previous();
-        assert_eq!(console.input(), "help");
-        console.recall_previous();
-        assert_eq!(console.input(), "help", "there should be only one entry");
+        scrollback.recall_previous();
+        assert_eq!(scrollback.input(), "help");
+        scrollback.recall_previous();
+        assert_eq!(scrollback.input(), "help", "there should be only one entry");
     }
 }

@@ -7,7 +7,8 @@
 //!
 //! ```no_run
 //! # async fn example() -> Result<(), hy_java::Error> {
-//! use hy_java::{DownloadPolicy, NoProgress, ResolveOptions, Resolver, Store, VersionRequest};
+//! use hy_fetch::NoProgress;
+//! use hy_java::{ResolveOptions, Resolver, Store, VersionRequest};
 //!
 //! let resolver = Resolver::new(Store::from_env()?)?;
 //! let request = VersionRequest::default_requirement(); // >=25
@@ -22,7 +23,6 @@
 pub mod adoptium;
 pub mod discovery;
 pub mod distribution;
-pub mod download;
 pub mod error;
 pub mod key;
 pub mod pin;
@@ -35,7 +35,6 @@ pub mod version;
 pub use adoptium::{AdoptiumClient, AvailableReleases, ReleaseAsset};
 pub use discovery::SystemJava;
 pub use distribution::JavaDistribution;
-pub use download::{Checksum, NoProgress, ProgressReporter};
 pub use error::{Error, Result};
 pub use key::InstallKey;
 pub use platform::{Arch, Os};

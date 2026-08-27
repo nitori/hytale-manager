@@ -24,7 +24,7 @@ use hy_run::{Output, OutputSink, StopHandle};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-pub use state::Console;
+pub use state::Scrollback;
 
 /// How often the UI redraws while idle. Also how quickly it notices a stop was requested.
 const TICK: Duration = Duration::from_millis(100);
@@ -59,19 +59,19 @@ fn is_known_bad() -> bool {
 /// Shared between the render loop and the supervisor's output tasks.
 #[derive(Clone, Default)]
 pub struct Shared {
-    console: Arc<Mutex<Console>>,
+    scrollback: Arc<Mutex<Scrollback>>,
 }
 
 impl Shared {
-    pub fn console(&self) -> std::sync::MutexGuard<'_, Console> {
+    pub fn scrollback(&self) -> std::sync::MutexGuard<'_, Scrollback> {
         // A poisoned lock would mean a panic mid-render; showing stale output beats
         // taking the server down with it.
-        self.console.lock().unwrap_or_else(|e| e.into_inner())
+        self.scrollback.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// A line from `hy` itself rather than the server, so it can be told apart.
     pub fn note(&self, message: impl Into<String>) {
-        self.console()
+        self.scrollback()
             .push(format!("{} {}", crate::printer::PREFIX, message.into()));
     }
 
@@ -82,7 +82,7 @@ impl Shared {
 
 impl OutputSink for Shared {
     fn line(&self, line: String) {
-        self.console().push(line);
+        self.scrollback().push(line);
     }
 }
 
@@ -189,27 +189,27 @@ fn classify(event: Event) -> Option<Action> {
     // Plain arrows stay with the input cursor — editing a mistyped command is far more
     // common than reading past the right edge. Shift is free; there is no selection.
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-    let mut console = shared.console();
+    let mut scrollback = shared.scrollback();
 
     match key.code {
         KeyCode::Char('c') if ctrl => return Some(Action::Stop),
-        KeyCode::Char(c) => console.insert(c),
-        KeyCode::Backspace => console.backspace(),
-        KeyCode::Delete => console.delete(),
-        KeyCode::Left if shift => console.scroll_left(COLUMN_STEP),
-        KeyCode::Right if shift => console.scroll_right(COLUMN_STEP),
-        KeyCode::Left => console.move_left(),
-        KeyCode::Right => console.move_right(),
-        KeyCode::Home => console.move_home(),
-        KeyCode::End => console.move_end(),
-        KeyCode::Up => console.recall_previous(),
-        KeyCode::Down => console.recall_next(),
-        KeyCode::PageUp => console.page_up(),
-        KeyCode::PageDown => console.page_down(),
-        KeyCode::Esc => console.scroll_to_tail(),
+        KeyCode::Char(c) => scrollback.insert(c),
+        KeyCode::Backspace => scrollback.backspace(),
+        KeyCode::Delete => scrollback.delete(),
+        KeyCode::Left if shift => scrollback.scroll_left(COLUMN_STEP),
+        KeyCode::Right if shift => scrollback.scroll_right(COLUMN_STEP),
+        KeyCode::Left => scrollback.move_left(),
+        KeyCode::Right => scrollback.move_right(),
+        KeyCode::Home => scrollback.move_home(),
+        KeyCode::End => scrollback.move_end(),
+        KeyCode::Up => scrollback.recall_previous(),
+        KeyCode::Down => scrollback.recall_next(),
+        KeyCode::PageUp => scrollback.page_up(),
+        KeyCode::PageDown => scrollback.page_down(),
+        KeyCode::Esc => scrollback.scroll_to_tail(),
         KeyCode::Enter => {
-            let line = console.submit();
-            drop(console);
+            let line = scrollback.submit();
+            drop(scrollback);
             return line.map(Action::Send);
         }
         _ => {}

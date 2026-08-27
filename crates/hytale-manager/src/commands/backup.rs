@@ -8,7 +8,7 @@ use hy_instance::Instance;
 use owo_colors::OwoColorize;
 
 use crate::commands::Context;
-use crate::printer::bytes;
+use crate::printer::{Align, Table, bytes};
 
 pub fn create(args: BackupCreateArgs, ctx: &Context) -> Result<()> {
     let instance = ctx.require_instance()?;
@@ -38,26 +38,33 @@ pub fn list(ctx: &Context) -> Result<()> {
     }
 
     let mut branch_noted = false;
+    let mut table = Table::new([
+        Align::Left,
+        Align::Left,
+        Align::Left,
+        Align::Right,
+        Align::Left,
+    ]);
     for backup in &backups {
-        let current = backup.is_current_lineage(&history);
         let local = backup.created.to_zoned(jiff::tz::TimeZone::system());
+        let lineage = if backup.is_current_lineage(&history) {
+            String::new()
+        } else {
+            branch_noted = true;
+            format!("(lineage {}, superseded)", backup.lineage)
+        };
 
         // One local-time column for both origins: our ids are UTC and the server's are
         // local, so the names alone cannot be compared by eye.
-        ctx.printer.stdout(format!(
-            "{:<20}  {:<19}  {:<8}  {:>9}  {}",
-            backup.id,
+        table.row([
+            backup.id.clone(),
             local.strftime("%Y-%m-%d %H:%M:%S").to_string(),
-            backup.origin.as_str(),
+            backup.origin.as_str().to_string(),
             bytes(backup.size),
-            if current {
-                String::new()
-            } else {
-                branch_noted = true;
-                format!("(lineage {}, superseded)", backup.lineage)
-            }
-        ));
+            lineage,
+        ]);
     }
+    table.print(ctx.printer);
 
     if branch_noted {
         ctx.printer.detail(

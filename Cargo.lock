@@ -1145,7 +1145,7 @@ dependencies = [
 name = "hy-dist"
 version = "0.3.0"
 dependencies = [
- "hy-java",
+ "hy-fetch",
  "quick-xml",
  "reqwest",
  "semver",
@@ -1156,6 +1156,20 @@ dependencies = [
  "tokio",
  "tracing",
  "zip",
+]
+
+[[package]]
+name = "hy-fetch"
+version = "0.3.0"
+dependencies = [
+ "etcetera",
+ "futures-util",
+ "reqwest",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1174,13 +1188,11 @@ dependencies = [
 name = "hy-java"
 version = "0.3.0"
 dependencies = [
- "etcetera",
  "flate2",
  "fs4",
- "futures-util",
+ "hy-fetch",
  "reqwest",
  "serde",
- "sha2 0.11.0",
  "tar",
  "tempfile",
  "thiserror 2.0.20",
@@ -1285,6 +1297,7 @@ dependencies = [
  "hy-backup",
  "hy-cli",
  "hy-dist",
+ "hy-fetch",
  "hy-instance",
  "hy-java",
  "hy-run",

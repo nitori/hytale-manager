@@ -14,6 +14,7 @@ hy-auth = { path = "crates/hy-auth" }
 hy-backup = { path = "crates/hy-backup" }
 hy-cli = { path = "crates/hy-cli" }
 hy-dist = { path = "crates/hy-dist" }
+hy-fetch = { path = "crates/hy-fetch" }
 hy-instance = { path = "crates/hy-instance" }
 hy-java = { path = "crates/hy-java" }
 hy-run = { path = "crates/hy-run" }

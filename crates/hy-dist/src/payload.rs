@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use hy_java::download::{Checksum, ProgressReporter, download_verified};
+use hy_fetch::{Checksum, ProgressReporter, download_verified};
 use serde::Deserialize;
 
 use crate::error::{Error, Result};

@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use crate::adoptium::{AdoptiumClient, AvailableReleases, ReleaseAsset};
 use crate::discovery::{self, SystemJava};
 use crate::distribution::JavaDistribution;
-use crate::download::ProgressReporter;
+use hy_fetch::ProgressReporter;
 use crate::error::{Error, Result};
 use crate::key::InstallKey;
 use crate::pin;

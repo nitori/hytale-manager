@@ -156,7 +156,7 @@ instance *uses* (a pin), written the first time a command provisions Java. A pin
 contradicts the requirement is an error naming both files. Pins stay portable
 (`temurin-25.0.4.1+1` — no OS or architecture), so an instance can move between machines.
 
-Runtimes live in `~/.local/share/hy/java/` (`%LOCALAPPDATA%\hy` on Windows), keyed as
+Runtimes live in `~/.local/share/hy/java/` (`%APPDATA%\hy` on Windows), keyed as
 `temurin-25.0.4.1+1-linux-x86_64`.
 
 ## `hytale.toml`

@@ -6,36 +6,10 @@
 use std::path::{Path, PathBuf};
 
 use futures_util::StreamExt;
-use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
+use crate::digest::Checksum;
 use crate::error::{Error, Result};
-
-/// What a download is checked against.
-#[derive(Debug, Clone)]
-pub enum Checksum {
-    Sha256(String),
-}
-
-impl Checksum {
-    pub fn expected(&self) -> &str {
-        match self {
-            Self::Sha256(hex) => hex,
-        }
-    }
-
-    async fn digest(&self, path: &Path) -> Result<String> {
-        match self {
-            Self::Sha256(_) => digest_file::<Sha256>(path).await,
-        }
-    }
-
-    /// `None` when the file matches; the actual digest when it does not.
-    async fn mismatch(&self, path: &Path) -> Result<Option<String>> {
-        let actual = self.digest(path).await?;
-        Ok((!actual.eq_ignore_ascii_case(self.expected())).then_some(actual))
-    }
-}
 
 /// Progress sink, so this crate does not depend on a particular terminal UI.
 pub trait ProgressReporter: Send + Sync {
@@ -129,16 +103,23 @@ pub async fn download_verified(
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .write(true)
-        .truncate(!resuming)
+        .truncate(have == 0)
         .open(&part_path)
         .await?;
-    if resuming {
+    if have > 0 {
         file.seek(std::io::SeekFrom::End(0)).await?;
     }
+
+    // Only a transfer that starts from zero sees every byte, so only that one can be
+    // verified as it streams; a resumed one has to read the file back afterwards.
+    let mut digester = (have == 0).then(|| checksum.digester());
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
+        if let Some(digester) = &mut digester {
+            digester.update(&chunk);
+        }
         file.write_all(&chunk).await?;
         progress.advance(chunk.len() as u64);
     }
@@ -147,7 +128,11 @@ pub async fn download_verified(
     drop(file);
     progress.finish();
 
-    if let Some(actual) = checksum.mismatch(&part_path).await? {
+    let actual = match digester {
+        Some(digester) => digester.finish(),
+        None => checksum.digest(&part_path).await?,
+    };
+    if !checksum.matches(&actual) {
         // Remove the bad file so a retry does not resume from it.
         let _ = tokio::fs::remove_file(&part_path).await;
         return Err(Error::ChecksumMismatch {
@@ -168,64 +153,4 @@ pub async fn download_verified(
     }
 
     Ok(final_path)
-}
-
-async fn digest_file<D: Digest>(path: &Path) -> Result<String> {
-    let mut file = tokio::fs::File::open(path).await?;
-    let mut hasher = D::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let read = file.read(&mut buf).await?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buf[..read]);
-    }
-    Ok(hex(&hasher.finalize()))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    bytes.iter().fold(String::new(), |mut out, byte| {
-        let _ = write!(out, "{byte:02x}");
-        out
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn sha256_matches_the_reference_digest() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("payload");
-        tokio::fs::write(&path, b"abc").await.unwrap();
-
-        assert_eq!(
-            digest_file::<Sha256>(&path).await.unwrap(),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-    }
-
-    /// More than one read buffer, and not a whole number of them, so a dropped tail or a
-    /// mishandled short read shows up rather than hiding behind an aligned size.
-    #[tokio::test]
-    async fn sha256_spans_multiple_read_buffers() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("large");
-        tokio::fs::write(&path, vec![0u8; (1 << 20) + 7])
-            .await
-            .unwrap();
-
-        assert_eq!(
-            digest_file::<Sha256>(&path).await.unwrap(),
-            "8cd66c0067f5824edbd967efc4f03d328c6a58727b96b37736e26638eba47fb0"
-        );
-    }
-
-    #[test]
-    fn hex_pads_single_digit_bytes() {
-        assert_eq!(hex(&[0x00, 0x0f, 0xff]), "000fff");
-    }
 }

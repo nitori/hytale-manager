@@ -27,6 +27,7 @@ the behavioural constraints behind it; read it before changing how a command beh
 |---|---|
 | `hy-instance` | `hytale.toml`, directory layout, JVM options |
 | `hy-auth` | Account credentials: OAuth device flow, encrypted store |
+| `hy-fetch` | Resumable verified downloads, checksums, `HY_HOME` and the download cache |
 | `hy-dist` | Server downloads: asset service client, Maven metadata, payload verification |
 | `hy-java` | Java discovery, Adoptium downloads, managed store, version resolution and pins |
 | `hy-run` | Process supervision: command building, staging, instance lock, signals, console I/O |

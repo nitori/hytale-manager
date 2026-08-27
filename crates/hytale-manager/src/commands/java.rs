@@ -14,7 +14,7 @@ use hy_java::{
 use owo_colors::OwoColorize;
 
 use crate::commands::Context;
-use crate::printer::bytes;
+use crate::printer::{Align, Table, bytes};
 use crate::progress::BarReporter;
 
 /// `hy java install [VERSION]`
@@ -87,13 +87,14 @@ pub async fn list(args: JavaListArgs, ctx: &Context) -> Result<()> {
         if installs.is_empty() {
             ctx.printer.detail("none installed");
         }
+        let mut table = Table::new([Align::Left, Align::Left]);
         for install in installs {
-            ctx.printer.stdout(format!(
-                "{:<38} {}",
+            table.row([
                 install.key.to_string(),
-                install.java_home().display()
-            ));
+                install.java_home().display().to_string(),
+            ]);
         }
+        table.print(ctx.printer);
     }
 
     if !args.only_managed {
@@ -103,14 +104,16 @@ pub async fn list(args: JavaListArgs, ctx: &Context) -> Result<()> {
         if found.is_empty() {
             ctx.printer.detail("none found");
         }
+        let mut table = Table::new([Align::Left, Align::Left, Align::Left]);
         for java in found {
             let vendor = java.vendor.as_deref().unwrap_or("unknown vendor");
-            ctx.printer.stdout(format!(
-                "{:<38} {}  ({vendor})",
+            table.row([
                 java.version.to_string(),
-                java.home.display()
-            ));
+                java.home.display().to_string(),
+                format!("({vendor})"),
+            ]);
         }
+        table.print(ctx.printer);
     }
 
     Ok(())

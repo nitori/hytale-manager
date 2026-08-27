@@ -1,7 +1,7 @@
 //! The managed JDK store.
 //!
 //! ```text
-//! ~/.local/share/hy/                       (%LOCALAPPDATA%\hy on Windows)
+//! ~/.local/share/hy/                       (%APPDATA%\hy on Windows)
 //! ├── java/
 //! │   ├── .locks/
 //! │   └── temurin-25.0.4.1+1-linux-x86_64/  ← install key
@@ -18,11 +18,10 @@
 
 use std::path::{Path, PathBuf};
 
-use etcetera::BaseStrategy;
 use fs4::{FileExt, TryLockError};
+use hy_fetch::{Checksum, ProgressReporter, download_verified};
 
 use crate::adoptium::ReleaseAsset;
-use crate::download::{Checksum, ProgressReporter, download_verified};
 use crate::error::{Error, Result};
 use crate::key::InstallKey;
 use crate::platform::ArchiveKind;
@@ -53,16 +52,7 @@ impl ManagedInstall {
 impl Store {
     /// Locate the store, honouring `HY_HOME`.
     pub fn from_env() -> Result<Self> {
-        if let Some(home) = std::env::var_os("HY_HOME") {
-            return Ok(Self {
-                root: PathBuf::from(home),
-            });
-        }
-        let strategy =
-            etcetera::choose_base_strategy().map_err(|e| std::io::Error::other(e.to_string()))?;
-        Ok(Self {
-            root: strategy.data_dir().join("hy"),
-        })
+        Ok(Self::new(hy_fetch::home()?))
     }
 
     pub fn new(root: PathBuf) -> Self {
@@ -78,7 +68,7 @@ impl Store {
     }
 
     pub fn cache_dir(&self) -> PathBuf {
-        self.root.join("cache").join("downloads")
+        hy_fetch::cache_dir(&self.root)
     }
 
     /// Every complete managed install, newest first.

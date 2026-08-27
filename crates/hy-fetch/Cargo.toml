@@ -1,20 +1,19 @@
 [package]
-name = "hy-java"
+name = "hy-fetch"
+description = "Verified downloads and the shared `hy` storage locations"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-hy-fetch = { workspace = true }
-
-flate2 = { workspace = true }
-fs4 = { workspace = true }
+etcetera = { workspace = true }
+futures-util = { workspace = true }
 reqwest = { workspace = true }
-serde = { workspace = true }
-tar = { workspace = true }
-tempfile = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-zip = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

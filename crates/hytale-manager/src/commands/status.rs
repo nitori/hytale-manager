@@ -8,7 +8,8 @@ use std::fmt::Display;
 use anyhow::Result;
 use hy_cli::StatusArgs;
 use hy_instance::{Finding, Instance};
-use hy_java::{DownloadPolicy, NoProgress, ResolveOptions, Resolver, Store};
+use hy_fetch::NoProgress;
+use hy_java::{DownloadPolicy, ResolveOptions, Resolver, Store};
 use owo_colors::OwoColorize;
 
 use crate::commands::{Context, java};

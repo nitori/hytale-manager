@@ -1,3 +1,10 @@
+# hytale-manager
+
+> **Written by an AI.** Nearly every line of this project — code, tests, and this sentence —
+> was produced by an LLM, directed by a human. Read the code before you point it at a server
+> you care about. Its shape is loosely inspired by [uv](https://github.com/astral-sh/uv):
+> a workspace of small crates, a thin binary, and toolchains provisioned automatically.
+
 ## Comments and docstrings
 
 **Default to no comment.** Most code needs none — assume an experienced reader. Signatures and
